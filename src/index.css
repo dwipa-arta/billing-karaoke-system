@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-[#050505] text-white font-sans;
+  }
+}
+
+@layer components {
+  .premium-card {
+    @apply bg-[#111111] border border-white/10 rounded-2xl p-6 shadow-2xl transition-all duration-300;
+  }
+  
+  .premium-button {
+    @apply px-6 py-3 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2;
+  }
+  
+  .status-pill {
+    @apply px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .fixed.inset-0.z-\[200\] .bg-white,
+  .fixed.inset-0.z-\[200\] .bg-white * {
+    visibility: visible;
+  }
+  .fixed.inset-0.z-\[200\] {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    visibility: visible;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-black;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-white/10 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-white/20;
+}
