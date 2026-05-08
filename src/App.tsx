@@ -194,6 +194,7 @@ export default function App() {
     }
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const [roomStatusFilter, setRoomStatusFilter] = useState<RoomStatus | 'all'>('all');
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [view, setView] = useState<'dashboard' | 'history' | 'settings'>('dashboard');
   const [dashboardViewMode, setDashboardViewMode] = useState<'detail' | 'list'>('detail');
@@ -273,6 +274,9 @@ export default function App() {
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [mgmtCategoryFilter, setMgmtCategoryFilter] = useState<string>('all');
   const [mgmtSearchQuery, setMgmtSearchQuery] = useState('');
+  const [pkgSearchQuery, setPkgSearchQuery] = useState('');
+  const [txSearchQuery, setTxSearchQuery] = useState('');
+  const [logSearchQuery, setLogSearchQuery] = useState('');
   const [editingPackage, setEditingPackage] = useState<Package | null>(null);
   const [showPackageForm, setShowPackageForm] = useState(false);
   const [pkgName, setPkgName] = useState('');
@@ -330,7 +334,7 @@ export default function App() {
     name: '',
     price: 0,
     purchasePrice: 0,
-    category: 'drink' as 'drink' | 'food' | 'other',
+    category: 'drink' as 'drink' | 'food' | 'smoke' | 'other',
     unit: 'Pcs',
     stock: 0
   });
@@ -970,6 +974,21 @@ export default function App() {
                     />
                   </div>
 
+                  <div className="relative group w-full md:w-48">
+                    <select 
+                      value={roomStatusFilter}
+                      onChange={(e) => setRoomStatusFilter(e.target.value as any)}
+                      className="w-full bg-[#111] border border-white/5 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-white/20 transition-all shadow-xl appearance-none cursor-pointer font-bold uppercase tracking-wider"
+                    >
+                      <option value="all">Semua Status</option>
+                      <option value={RoomStatus.AVAILABLE}>Tersedia (Ready)</option>
+                      <option value={RoomStatus.ACTIVE}>Aktif (Active)</option>
+                      <option value={RoomStatus.CLEANING}>Pembersihan</option>
+                      <option value={RoomStatus.MAINTENANCE}>Perbaikan</option>
+                    </select>
+                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/20" />
+                  </div>
+
                   <div className="flex p-0.5 bg-[#111] rounded-lg border border-white/5">
                     <button 
                       onClick={() => setDashboardViewMode('detail')}
@@ -994,7 +1013,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <div className="bg-[#111] px-3 py-1.5 rounded-lg border border-white/5 flex items-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
                     <span className="text-[11px] font-medium text-white/70">{rooms.filter(r => r.status === RoomStatus.AVAILABLE).length} Siap</span>
@@ -1002,6 +1021,14 @@ export default function App() {
                   <div className="bg-[#111] px-3 py-1.5 rounded-lg border border-white/5 flex items-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]"></div>
                     <span className="text-[11px] font-medium text-white/70">{rooms.filter(r => r.status === RoomStatus.ACTIVE).length} Aktif</span>
+                  </div>
+                  <div className="bg-[#111] px-3 py-1.5 rounded-lg border border-white/5 flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></div>
+                    <span className="text-[11px] font-medium text-white/70">{rooms.filter(r => r.status === RoomStatus.CLEANING).length} Bersih</span>
+                  </div>
+                  <div className="bg-[#111] px-3 py-1.5 rounded-lg border border-white/5 flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]"></div>
+                    <span className="text-[11px] font-medium text-white/70">{rooms.filter(r => r.status === RoomStatus.MAINTENANCE).length} Perbaikan</span>
                   </div>
                 </div>
               </div>
@@ -1014,10 +1041,16 @@ export default function App() {
               )}>
                 <AnimatePresence mode="popLayout">
                   {rooms
-                    .filter(r => r.name.toLowerCase().includes(searchQuery.toLowerCase()) || r.type.toLowerCase().includes(searchQuery.toLowerCase()))
+                    .filter(r => {
+                      const matchesSearch = r.name.toLowerCase().includes(searchQuery.toLowerCase()) || r.type.toLowerCase().includes(searchQuery.toLowerCase());
+                      const matchesStatus = roomStatusFilter === 'all' || r.status === roomStatusFilter;
+                      return matchesSearch && matchesStatus;
+                    })
                     .map((room) => {
                     const session = sessions.find(s => s.roomId === room.id && s.status === 'active');
                     const isOccupied = room.status === RoomStatus.ACTIVE;
+                    const isCleaning = room.status === RoomStatus.CLEANING;
+                    const isMaintenance = room.status === RoomStatus.MAINTENANCE;
                     const isOnline = room.lastHeartbeat && (currentTime - room.lastHeartbeat < 30000); 
                     
                     if (dashboardViewMode === 'list') {
@@ -1031,15 +1064,19 @@ export default function App() {
                           onClick={() => setActiveRoomId(room.id)}
                           className={cn(
                             "flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer group hover:shadow-xl",
-                            isOccupied 
-                              ? "bg-red-500/5 border-red-500/20 hover:border-red-500/40" 
-                              : "bg-[#0A0A0A] border-white/5 hover:border-white/20"
+                            isOccupied ? "bg-red-500/5 border-red-500/20 hover:border-red-500/40" :
+                            isCleaning ? "bg-blue-500/5 border-blue-500/20 hover:border-blue-500/40" :
+                            isMaintenance ? "bg-yellow-500/5 border-yellow-500/20 hover:border-yellow-500/40" :
+                            "bg-[#0A0A0A] border-white/5 hover:border-white/20"
                           )}
                         >
                           <div className="flex items-center gap-4">
                             <div className={cn(
                               "w-12 h-12 rounded-xl flex items-center justify-center shadow-inner transition-colors",
-                              isOccupied ? "bg-red-500/20 text-red-500" : "bg-emerald-500/10 text-emerald-500"
+                              isOccupied ? "bg-red-500/20 text-red-500" : 
+                              isCleaning ? "bg-blue-500/10 text-blue-500" :
+                              isMaintenance ? "bg-yellow-500/10 text-yellow-500" :
+                              "bg-emerald-500/10 text-emerald-500"
                             )}>
                               <Mic2 size={24} />
                             </div>
@@ -1054,22 +1091,53 @@ export default function App() {
 
                           <div className="flex-1 px-8 hidden md:block">
                             {isOccupied && session ? (
-                              <div className="flex items-center gap-6">
-                                <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-lg">
+                              <div className="flex items-center gap-8">
+                                <div className="flex items-center gap-3">
                                   <div className="text-[8px] text-white/20 uppercase font-black">Sisa:</div>
                                   <div className={cn(
-                                    "text-xs font-black font-mono",
+                                    "text-sm font-black font-mono flex items-center gap-2",
+                                    !session.endTime ? "text-emerald-400" :
                                     getRemainingTime(session) < 600000 ? "text-red-500 animate-pulse" : "text-white"
                                   )}>
-                                    {formatTime(getRemainingTime(session))}
+                                    {session.endTime ? (
+                                      <>
+                                        {formatTime(Math.max(0, getRemainingTime(session) || 0))}
+                                        <div className="w-24 h-1.5 bg-white/5 rounded-full overflow-hidden hidden lg:block">
+                                          <motion.div 
+                                            className={cn(
+                                              "h-full transition-all duration-1000",
+                                              ((getRemainingTime(session) || 0) / (session.endTime - session.startTime)) < 0.1 ? "bg-red-500" : "bg-emerald-500"
+                                            )}
+                                            animate={{ 
+                                              width: `${Math.min(100, Math.max(0, ((currentTime - session.startTime) / (session.endTime - session.startTime)) * 100))}%` 
+                                            }}
+                                          />
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <span className="flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                                        {formatTime(currentTime - session.startTime)}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-lg">
+                                <div className="flex items-center gap-3">
                                   <div className="text-[8px] text-white/20 uppercase font-black">Tagihan:</div>
-                                  <div className="text-xs font-black font-mono text-emerald-400">
+                                  <div className="text-sm font-black font-mono text-emerald-400">
                                     {formatCurrency(calculateCurrentCost(session))}
                                   </div>
                                 </div>
+                              </div>
+                            ) : isCleaning ? (
+                              <div className="flex items-center gap-2 text-[10px] text-blue-400 font-bold uppercase tracking-widest">
+                                <Activity size={12} className="animate-spin-slow" />
+                                Sedang Dibersihkan...
+                              </div>
+                            ) : isMaintenance ? (
+                              <div className="flex items-center gap-2 text-[10px] text-yellow-500 font-bold uppercase tracking-widest">
+                                <Settings size={12} />
+                                Dalam Perbaikan
                               </div>
                             ) : (
                               <div className="flex items-center gap-2 text-[10px] text-white/20 italic">
@@ -1082,6 +1150,10 @@ export default function App() {
                           <div className="flex items-center gap-4">
                             {isOccupied ? (
                               <div className="px-3 py-1.5 bg-red-500 text-black text-[10px] font-black uppercase tracking-tighter rounded-lg shadow-lg">AKTIF</div>
+                            ) : isCleaning ? (
+                              <div className="px-3 py-1.5 bg-blue-500 text-black text-[10px] font-black uppercase tracking-tighter rounded-lg shadow-lg">CLEANING</div>
+                            ) : isMaintenance ? (
+                              <div className="px-3 py-1.5 bg-yellow-500 text-black text-[10px] font-black uppercase tracking-tighter rounded-lg shadow-lg">MAINTENANCE</div>
                             ) : (
                               <div className="px-3 py-1.5 bg-white/5 text-white/40 text-[10px] font-black uppercase tracking-tighter rounded-lg">SIAP</div>
                             )}
@@ -1100,23 +1172,32 @@ export default function App() {
                         onClick={() => setActiveRoomId(room.id)}
                         className={cn(
                           "bg-[#111] border rounded-xl p-4 shadow-2xl transition-all duration-300 cursor-pointer group hover:scale-[1.02] border-2",
-                          isOccupied ? 'border-red-500/30 ring-1 ring-red-500/20' : 'border-white/5',
-                          !isOnline && !isOccupied && 'opacity-60'
+                          isOccupied ? 'border-red-500/30 ring-1 ring-red-500/20' : 
+                          isCleaning ? 'border-blue-500/30 ring-1 ring-blue-500/20' :
+                          isMaintenance ? 'border-yellow-500/30 ring-1 ring-yellow-500/20' :
+                          'border-white/5',
+                          !isOnline && !isOccupied && !isCleaning && !isMaintenance && 'opacity-60'
                         )}
                       >
                         <div className="flex justify-between items-start mb-2">
                           <div className="space-y-1">
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <span className="text-[9px] px-2 py-0.5 rounded-full bg-white/10 text-white/60 inline-block uppercase tracking-wider font-bold">{room.type}</span>
                               <div className={cn(
                                 "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter",
-                                isOccupied ? "bg-red-500/20 text-red-500" : "bg-emerald-500/20 text-emerald-500"
+                                isOccupied ? "bg-red-500/20 text-red-500" : 
+                                isCleaning ? "bg-blue-500/20 text-blue-500" :
+                                isMaintenance ? "bg-yellow-500/20 text-yellow-500" :
+                                "bg-emerald-500/20 text-emerald-500"
                               )}>
                                 <div className={cn(
                                   "w-1 h-1 rounded-full",
-                                  isOccupied ? "bg-red-500 animate-pulse shadow-[0_0_5px_rgba(239,68,68,1)]" : "bg-emerald-500"
+                                  isOccupied ? "bg-red-500 animate-pulse shadow-[0_0_5px_rgba(239,68,68,1)]" : 
+                                  isCleaning ? "bg-blue-500 animate-pulse" :
+                                  isMaintenance ? "bg-yellow-500" :
+                                  "bg-emerald-500"
                                 )}></div>
-                                {isOccupied ? 'Aktif' : 'Ready'}
+                                {isOccupied ? 'Aktif' : isCleaning ? 'Cleaning' : isMaintenance ? 'Repair' : 'Ready'}
                               </div>
                               {isOccupied && session?.isPackage && (
                                 <div className="bg-amber-500/20 text-amber-500 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter border border-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.1)]">
@@ -1140,6 +1221,14 @@ export default function App() {
                             <div className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center text-red-500">
                               <Square size={16} fill="currentColor" />
                             </div>
+                          ) : isCleaning ? (
+                            <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 animate-spin-slow">
+                              <Activity size={16} />
+                            </div>
+                          ) : isMaintenance ? (
+                            <div className="w-8 h-8 rounded-full bg-yellow-500/10 flex items-center justify-center text-yellow-500">
+                              <Settings size={16} />
+                            </div>
                           ) : (
                             <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
                               <DoorOpen size={16} />
@@ -1148,24 +1237,63 @@ export default function App() {
                         </div>
 
                         {isOccupied && session ? (
-                          <div className="space-y-3">
+                          <div className="space-y-4">
                             <div className="flex items-center justify-between text-white/40 text-[10px] font-mono uppercase tracking-widest">
-                              <span>Waktu {session.endTime ? 'Tersisa' : 'Berjalan'}</span>
-                              <Clock size={10} />
+                              <span>Waktu {session.endTime ? 'Sisa' : 'Berjalan'}</span>
+                              <div className="flex items-center gap-1">
+                                {!session.endTime && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>}
+                                <Clock size={10} />
+                              </div>
                             </div>
-                            <div className={cn(
-                                "text-2xl font-mono font-medium",
-                                session.endTime && (getRemainingTime(session) || 0) < 600000 ? "text-red-500 animate-pulse" : "text-white"
-                            )}>
-                              {session.endTime 
-                                ? formatTime(Math.max(0, getRemainingTime(session) || 0))
-                                : formatTime(currentTime - session.startTime)
-                              }
+                            
+                            <div className="space-y-2">
+                              <div className={cn(
+                                  "text-2xl font-mono font-black",
+                                  session.endTime && (getRemainingTime(session) || 0) < 600000 && (getRemainingTime(session) || 0) > 0 ? "text-red-500 animate-pulse" : "text-white"
+                              )}>
+                                {session.endTime 
+                                  ? formatTime(Math.max(0, getRemainingTime(session) || 0))
+                                  : formatTime(currentTime - session.startTime)
+                                }
+                              </div>
+                              
+                              {session.endTime && (
+                                <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                                  <motion.div 
+                                    className={cn(
+                                      "h-full rounded-full transition-all duration-1000",
+                                      ((getRemainingTime(session) || 0) / (session.endTime - session.startTime)) < 0.1 ? "bg-red-500" : "bg-emerald-500"
+                                    )}
+                                    initial={{ width: 0 }}
+                                    animate={{ 
+                                      width: `${Math.min(100, Math.max(0, ((currentTime - session.startTime) / (session.endTime - session.startTime)) * 100))}%` 
+                                    }}
+                                  />
+                                </div>
+                              )}
                             </div>
-                            <div className="pt-3 border-t border-white/5 flex items-center gap-2">
-                              <div className="text-[8px] text-white/20 uppercase font-black">Tagihan:</div>
-                              <div className="text-xs font-bold font-mono text-emerald-400">{formatCurrency(calculateCurrentCost(session))}</div>
+
+                            <div className="pt-3 border-t border-white/5 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className="text-[8px] text-white/20 uppercase font-black">Tagihan:</div>
+                                <div className="text-xs font-bold font-mono text-emerald-400">{formatCurrency(calculateCurrentCost(session))}</div>
+                              </div>
+                              {session.endTime && (
+                                <div className="text-[8px] text-white/20 font-mono">
+                                  {Math.round(Math.max(0, ((currentTime - session.startTime) / (session.endTime - session.startTime)) * 100))}%
+                                </div>
+                              )}
                             </div>
+                          </div>
+                        ) : isCleaning ? (
+                          <div className="py-2 flex flex-col justify-center items-center h-24 text-blue-500/40">
+                             <Activity size={32} className="animate-pulse mb-2" />
+                             <span className="text-[10px] font-black uppercase tracking-widest">Cleaning Mode</span>
+                          </div>
+                        ) : isMaintenance ? (
+                          <div className="py-2 flex flex-col justify-center items-center h-24 text-yellow-500/40">
+                             <Settings size={32} className="mb-2" />
+                             <span className="text-[10px] font-black uppercase tracking-widest">Out of Service</span>
                           </div>
                         ) : (
                           <div className="py-1 flex flex-col items-center text-white/10 group-hover:text-white/40 transition-colors">
@@ -1377,8 +1505,9 @@ export default function App() {
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs focus:outline-none focus:border-white/40 transition-all font-medium appearance-none cursor-pointer"
                       >
                         <option value="all">Semua Kategori</option>
-                        <option value="drink">Minuman</option>
                         <option value="food">Makanan</option>
+                        <option value="drink">Minuman</option>
+                        <option value="smoke">Rokok</option>
                         <option value="other">Lainnya</option>
                       </select>
                       <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/20" />
@@ -1422,11 +1551,12 @@ export default function App() {
                           <td className="px-6 py-4">
                             <span className={cn(
                               "text-[8px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider",
-                              item.category === 'drink' ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" :
                               item.category === 'food' ? "bg-orange-500/10 text-orange-400 border border-orange-500/20" :
+                              item.category === 'drink' ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" :
+                              item.category === 'smoke' ? "bg-red-500/10 text-red-400 border border-red-500/20" :
                               "bg-purple-500/10 text-purple-400 border border-purple-500/20"
                             )}>
-                              {item.category === 'drink' ? 'Minuman' : item.category === 'food' ? 'Makanan' : 'Lainnya'}
+                              {item.category === 'food' ? 'Makanan' : item.category === 'drink' ? 'Minuman' : item.category === 'smoke' ? 'Rokok' : 'Lainnya'}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-white/70 text-sm font-mono">{formatCurrency(item.price)}</td>
@@ -1693,35 +1823,118 @@ export default function App() {
                     <span className="text-[10px] bg-red-500/10 text-red-500 px-3 py-1 rounded-full font-bold uppercase tracking-widest">Master Admin</span>
                   </div>
                   
+                  <div className="bg-[#111] border border-white/10 p-6 rounded-3xl space-y-4 mb-8">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-white/60 flex items-center gap-2">
+                      <PlusCircle size={16} className="text-emerald-500" /> Tambah Pengguna Baru
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Nama Lengkap</label>
+                        <input 
+                          type="text" 
+                          placeholder="Contoh: Budi Santoso" 
+                          id="new-user-name"
+                          className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500/50 transition-all"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Role / Jabatan</label>
+                        <select 
+                          id="new-user-role"
+                          className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500/50 appearance-none cursor-pointer transition-all"
+                        >
+                          <option value={UserRole.CASHIER}>CASHIER</option>
+                          <option value={UserRole.MANAGER}>MANAGER</option>
+                          <option value={UserRole.ADMIN}>ADMIN</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] text-white/40 uppercase font-bold tracking-widest">PIN / Password</label>
+                        <input 
+                          type="password" 
+                          placeholder="Min. 4 Karakter" 
+                          id="new-user-password"
+                          className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500/50 transition-all font-mono tracking-widest"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button 
+                          onClick={() => {
+                            const nameInput = document.getElementById('new-user-name') as HTMLInputElement;
+                            const roleSelect = document.getElementById('new-user-role') as HTMLSelectElement;
+                            const passInput = document.getElementById('new-user-password') as HTMLInputElement;
+                            
+                            if (!nameInput.value || !passInput.value) {
+                              alert('Nama dan Password harus diisi!');
+                              return;
+                            }
+
+                            const newUser: User = {
+                              id: Math.random().toString(36).substring(2, 11),
+                              name: nameInput.value,
+                              role: roleSelect.value as UserRole,
+                              password: passInput.value,
+                              avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${nameInput.value}`
+                            };
+                            
+                            setUsers(prev => [...prev, newUser]);
+                            
+                            // Reset values
+                            nameInput.value = '';
+                            passInput.value = '';
+                          }}
+                          className="w-full bg-emerald-500 text-black font-bold py-2.5 rounded-xl text-xs hover:bg-emerald-400 transition-all flex items-center justify-center gap-2 shadow-[0_5px_15px_rgba(16,185,129,0.2)]"
+                        >
+                          <Save size={16} /> SIMPAN USER
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  
                   <div className="grid grid-cols-1 gap-4">
                     {users.map((u) => (
                       <div key={u.id} className="bg-[#111] border border-white/5 p-6 rounded-3xl space-y-6">
-                        <div className="flex items-center gap-4 border-b border-white/5 pb-4">
-                          <div className="relative group">
-                            <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white/10">
-                              <img src={u.avatar} alt={u.name} className="w-full h-full object-cover" />
+                          <div className="flex items-center justify-between gap-4 border-b border-white/5 pb-4">
+                            <div className="flex items-center gap-4">
+                              <div className="relative group">
+                                <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white/10">
+                                  <img src={u.avatar} alt={u.name} className="w-full h-full object-cover" />
+                                </div>
+                                <div className={cn(
+                                  "absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center p-1",
+                                  u.role === UserRole.ADMIN ? "bg-red-500" :
+                                  u.role === UserRole.MANAGER ? "bg-blue-500" :
+                                  "bg-emerald-500"
+                                )}>
+                                  <ShieldCheck size={10} className="text-white" />
+                                </div>
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-lg">{u.name}</h4>
+                                <span className={cn(
+                                  "text-[8px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-full mt-1 inline-block",
+                                  u.role === UserRole.ADMIN ? "bg-red-500/20 text-red-500" :
+                                  u.role === UserRole.MANAGER ? "bg-blue-500/20 text-blue-500" :
+                                  "bg-emerald-500/20 text-emerald-500"
+                                )}>
+                                  {u.role}
+                                </span>
+                              </div>
                             </div>
-                            <div className={cn(
-                              "absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center p-1",
-                              u.role === UserRole.ADMIN ? "bg-red-500" :
-                              u.role === UserRole.MANAGER ? "bg-blue-500" :
-                              "bg-emerald-500"
-                            )}>
-                              <ShieldCheck size={10} className="text-white" />
-                            </div>
+
+                            {currentUser.id !== u.id && (
+                              <button 
+                                onClick={() => {
+                                  if (confirm(`Hapus user ${u.name}? Tindakan ini tidak dapat dibatalkan.`)) {
+                                    setUsers(prev => prev.filter(user => user.id !== u.id));
+                                  }
+                                }}
+                                className="p-3 bg-red-400/10 text-red-400 hover:bg-red-400 hover:text-black rounded-xl transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider"
+                              >
+                                <Trash2 size={14} /> Hapus
+                              </button>
+                            )}
                           </div>
-                          <div>
-                            <h4 className="font-bold text-lg">{u.name}</h4>
-                            <span className={cn(
-                              "text-[8px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-full mt-1 inline-block",
-                              u.role === UserRole.ADMIN ? "bg-red-500/20 text-red-500" :
-                              u.role === UserRole.MANAGER ? "bg-blue-500/20 text-blue-500" :
-                              "bg-emerald-500/20 text-emerald-500"
-                            )}>
-                              {u.role}
-                            </span>
-                          </div>
-                        </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                           <div className="space-y-2">
@@ -1831,8 +2044,9 @@ export default function App() {
                               className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-xs focus:outline-none focus:border-white/40 transition-all font-bold appearance-none cursor-pointer pr-10"
                             >
                               <option value="all">SEMUA KATEGORI</option>
-                              <option value="drink">MINUMAN</option>
                               <option value="food">MAKANAN</option>
+                              <option value="drink">MINUMAN</option>
+                              <option value="smoke">ROKOK</option>
                               <option value="other">LAINNYA</option>
                             </select>
                             <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/20" />
@@ -1886,8 +2100,9 @@ export default function App() {
                             }}
                             className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-white/40 outline-none"
                           >
-                            <option value="drink">Minuman</option>
                             <option value="food">Makanan</option>
+                            <option value="drink">Minuman</option>
+                            <option value="smoke">Rokok</option>
                             <option value="other">Lainnya</option>
                           </select>
                         </div>
@@ -2078,14 +2293,28 @@ export default function App() {
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
                       <div className="md:col-span-4 space-y-2">
                         <label className="text-[10px] text-white/40 uppercase font-bold tracking-widest">Pilih Item Barang</label>
-                        <select 
-                          value={txItemId}
-                          onChange={(e) => setTxItemId(e.target.value)}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-emerald-500/50 outline-none cursor-pointer transition-all"
-                        >
-                          <option value="">Pilih Item...</option>
-                          {inventory.map(item => <option key={item.id} value={item.id}>{item.name} (Sisa: {item.stock} {item.unit})</option>)}
-                        </select>
+                        <div className="space-y-2">
+                          <div className="relative group">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-emerald-500 transition-colors" />
+                            <input 
+                              type="text" 
+                              placeholder="Cari item..." 
+                              value={txSearchQuery}
+                              onChange={(e) => setTxSearchQuery(e.target.value)}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-xs focus:outline-none focus:border-emerald-500/50 transition-all"
+                            />
+                          </div>
+                          <select 
+                            value={txItemId}
+                            onChange={(e) => setTxItemId(e.target.value)}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-emerald-500/50 outline-none cursor-pointer transition-all"
+                          >
+                            <option value="">Pilih Item...</option>
+                            {inventory
+                              .filter(item => item.name.toLowerCase().includes(txSearchQuery.toLowerCase()))
+                              .map(item => <option key={item.id} value={item.id}>{item.name} (Sisa: {item.stock} {item.unit})</option>)}
+                          </select>
+                        </div>
                       </div>
 
                       <div className="md:col-span-3 space-y-2">
@@ -2163,16 +2392,28 @@ export default function App() {
                   </div>
 
                   <div className="premium-card !p-0 overflow-hidden">
-                    <div className="px-8 py-5 border-b border-white/5 bg-white/[0.02] flex items-center justify-between">
+                    <div className="px-8 py-5 border-b border-white/5 bg-white/[0.02] flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <h3 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
                         <History size={14} /> Jurnal Log Mutasi Barang
                       </h3>
-                      <div className="flex items-center gap-4 text-[10px] font-bold text-white/20 uppercase tracking-widest">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Masuk
+                      <div className="flex flex-col md:flex-row items-center gap-4">
+                        <div className="relative group min-w-[240px]">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-emerald-500 transition-colors" />
+                          <input 
+                            type="text" 
+                            placeholder="Cari di log mutasi..." 
+                            value={logSearchQuery}
+                            onChange={(e) => setLogSearchQuery(e.target.value)}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-[10px] focus:outline-none focus:border-emerald-500/50 transition-all font-bold uppercase"
+                          />
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div> Keluar
+                        <div className="flex items-center gap-4 text-[10px] font-bold text-white/20 uppercase tracking-widest">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Masuk
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div> Keluar
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2189,7 +2430,10 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5 text-xs text-white/60 font-medium">
-                          {inventoryLogs.length > 0 ? inventoryLogs.map(log => (
+                          {inventoryLogs.filter(log => log.itemName.toLowerCase().includes(logSearchQuery.toLowerCase())).length > 0 ? 
+                            inventoryLogs
+                              .filter(log => log.itemName.toLowerCase().includes(logSearchQuery.toLowerCase()))
+                              .map(log => (
                             <tr key={log.id} className="hover:bg-white/[0.01] transition-colors group">
                               <td className="px-8 py-5">
                                 <div className="text-white/80 font-mono text-[10px] mb-0.5">{new Date(log.date).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
@@ -2294,13 +2538,13 @@ export default function App() {
                       <h4 className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-6">Analisis Margin per Kategori (%)</h4>
                       <div className="h-[250px]">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={['drink', 'food', 'other'].map(cat => {
+                          <BarChart data={['food', 'drink', 'smoke', 'other'].map(cat => {
                             const items = inventory.filter(i => i.category === cat);
                             const totalRev = items.reduce((sum, i) => sum + (i.price * i.stock), 0);
                             const totalCost = items.reduce((sum, i) => sum + ((i.purchasePrice || 0) * i.stock), 0);
                             const margin = totalRev > 0 ? ((totalRev - totalCost) / totalRev) * 100 : 0;
                             return {
-                              name: cat === 'drink' ? 'Minuman' : cat === 'food' ? 'Makanan' : 'Lainnya',
+                              name: cat === 'food' ? 'Makanan' : cat === 'drink' ? 'Minuman' : cat === 'smoke' ? 'Rokok' : 'Lainnya',
                               margin: Math.round(margin)
                             };
                           })}>
@@ -2329,8 +2573,8 @@ export default function App() {
                               }}
                             />
                             <Bar dataKey="margin" radius={[4, 4, 0, 0]}>
-                              {['drink', 'food', 'other'].map((_, index) => (
-                                <Cell key={`cell-${index}`} fill={['#3b82f6', '#f97316', '#a855f7'][index]} fillOpacity={0.8} />
+                              {['food', 'drink', 'smoke', 'other'].map((_, index) => (
+                                <Cell key={`cell-${index}`} fill={['#f97316', '#3b82f6', '#ef4444', '#a855f7'][index]} fillOpacity={0.8} />
                               ))}
                             </Bar>
                           </BarChart>
@@ -2414,7 +2658,7 @@ export default function App() {
                            <FileText size={14} /> Breakdown per Kategori Produk
                         </h4>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                          {['drink', 'food', 'other'].map(cat => {
+                          {['food', 'drink', 'smoke', 'other'].map(cat => {
                             const items = inventory.filter(i => i.category === cat);
                             const valSell = items.reduce((sum, i) => sum + (i.price * i.stock), 0);
                             const valBuy = items.reduce((sum, i) => sum + ((i.purchasePrice || 0) * i.stock), 0);
@@ -2423,10 +2667,10 @@ export default function App() {
                             return (
                               <div key={cat} className="p-6 bg-white/[0.02] rounded-3xl border border-white/5 hover:border-white/10 transition-all group">
                                 <div className="text-[10px] text-white font-bold uppercase mb-4 flex items-center justify-between">
-                                  <span>{cat === 'drink' ? 'Minuman (Beverages)' : cat === 'food' ? 'Makanan (Appetizers)' : 'Lain-lain (Accessories)'}</span>
+                                  <span>{cat === 'food' ? 'Makanan' : cat === 'drink' ? 'Minuman' : cat === 'smoke' ? 'Rokok' : 'Lainnya'}</span>
                                   <div className={cn(
                                     "w-2 h-2 rounded-full",
-                                    cat === 'drink' ? "bg-blue-500" : cat === 'food' ? "bg-orange-500" : "bg-purple-500"
+                                    cat === 'food' ? "bg-orange-500" : cat === 'drink' ? "bg-blue-500" : cat === 'smoke' ? "bg-red-500" : "bg-purple-500"
                                   )}></div>
                                 </div>
                                 <div className="space-y-3">
@@ -2523,10 +2767,11 @@ export default function App() {
                           onChange={(e) => setNewItemForm(prev => ({ ...prev, category: e.target.value as any }))}
                           className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-emerald-500/50 outline-none cursor-pointer"
                         >
-                          <option value="drink">Minuman (Drink)</option>
-                          <option value="food">Makanan (Food)</option>
-                          <option value="other">Lainnya (Other)</option>
-                        </select>
+                            <option value="food">Makanan (Food)</option>
+                            <option value="drink">Minuman (Drink)</option>
+                            <option value="smoke">Rokok (Smoke)</option>
+                            <option value="other">Lainnya (Other)</option>
+                          </select>
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] text-white/40 uppercase font-bold tracking-widest">Satuan (Unit)</label>
@@ -2726,8 +2971,9 @@ export default function App() {
                           className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[9px] text-white/60 focus:outline-none focus:border-white/40 appearance-none cursor-pointer pr-5"
                         >
                           <option value="all">Semua</option>
-                          <option value="drink">Minuman</option>
                           <option value="food">Makanan</option>
+                          <option value="drink">Minuman</option>
+                          <option value="smoke">Rokok</option>
                           <option value="other">Lainnya</option>
                         </select>
                       </div>
@@ -2824,279 +3070,325 @@ export default function App() {
                 ) : (
                   <div className="space-y-6">
                     {/* Mode Switcher */}
-                    <div className="flex gap-4 p-2 bg-white/5 rounded-3xl border border-white/5">
-                      <button 
-                        onClick={() => setStartMode('manual')}
-                        className={cn(
-                          "flex-1 py-4 text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all flex items-center justify-center gap-3",
-                          startMode === 'manual' 
-                            ? "bg-white/10 text-white shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-white/10" 
-                            : "text-white/30 hover:text-white/60"
-                        )}
-                      >
-                        <Settings size={16} strokeWidth={2.5} />
-                        MANUAL
-                      </button>
-                      <button 
-                        onClick={() => setStartMode('package')}
-                        className={cn(
-                          "flex-1 py-4 text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all flex items-center justify-center gap-3",
-                          startMode === 'package' 
-                            ? "bg-white/10 text-white shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-white/10" 
-                            : "text-white/30 hover:text-white/60"
-                        )}
-                      >
-                        <PackageSearch size={16} strokeWidth={2.5} />
-                        SISTEM PAKET
-                      </button>
-                    </div>
-
-                    {startMode === 'manual' ? (
-                      <div className="space-y-8 pt-2">
-                        {/* Rate Control */}
-                        <div className="flex items-center justify-between gap-6">
-                          <label className="text-xs text-white uppercase font-black tracking-widest whitespace-nowrap">HARGA PER JAM</label>
-                          <div className="flex-1 relative">
-                            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-white/20 text-[9px] font-mono">
-                              Rp
-                            </div>
-                            <input 
-                              type="number" 
-                              value={customRate || 0}
-                              onChange={(e) => setCustomRate(Number(e.target.value))}
-                              disabled={!(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked)}
-                              className={cn(
-                                "w-full bg-[#050505] border border-white/5 rounded-lg py-2.5 pl-9 pr-4 text-xs font-mono focus:outline-none focus:border-white/20 transition-all",
-                                !(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && "opacity-40 cursor-not-allowed"
-                              )}
-                            />
-                          </div>
-                          {(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && (
-                            <div className="flex items-center gap-1.5 text-[8px] text-emerald-400 font-black uppercase tracking-widest">
-                              <ShieldCheck size={14} className="text-emerald-500" />
-                              TEROTORISASI EDIT
-                            </div>
-                          )}
-                        </div>
-
-                        {/* PIN Unlock if needed */}
-                        {!(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && (
-                          <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-2 text-[9px] text-white/40 font-bold uppercase tracking-widest">
-                              <Shield size={12} /> Buka Akses Edit Harga
-                            </div>
-                            <div className="flex gap-2 flex-1 max-w-[200px]">
-                              <input 
-                                type="password" 
-                                placeholder="PIN Admin"
-                                value={overridePassword}
-                                onChange={(e) => {
-                                  setOverridePassword(e.target.value);
-                                  setOverrideError(false);
+                    {activeRoom?.status !== RoomStatus.ACTIVE && (
+                      <div className="space-y-6">
+                        <div className="space-y-4">
+                          <label className="text-xs text-white uppercase font-black tracking-widest pl-1">Status Ruangan</label>
+                          <div className="flex gap-2 p-1 bg-white/5 rounded-2xl border border-white/5">
+                            {[
+                              { id: RoomStatus.AVAILABLE, label: 'Siap', icon: Check, color: 'text-emerald-400', bg: 'hover:bg-emerald-500/10' },
+                              { id: RoomStatus.CLEANING, label: 'Bersih', icon: Activity, color: 'text-blue-400', bg: 'hover:bg-blue-500/10' },
+                              { id: RoomStatus.MAINTENANCE, label: 'Perbaikan', icon: Settings, color: 'text-yellow-400', bg: 'hover:bg-yellow-500/10' }
+                            ].map((s) => (
+                              <button
+                                key={s.id}
+                                onClick={() => {
+                                  setRooms(prev => prev.map(r => r.id === activeRoomId ? { ...r, status: s.id } : r));
                                 }}
                                 className={cn(
-                                  "w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] font-mono focus:outline-none focus:border-white/30 transition-all",
-                                  overrideError && "border-red-500/50"
+                                  "flex-1 py-3 px-2 rounded-xl text-[9px] font-bold uppercase transition-all flex flex-col items-center gap-1.5",
+                                  activeRoom?.status === s.id 
+                                    ? `bg-white/10 ${s.color} border border-white/10 shadow-lg` 
+                                    : `text-white/20 ${s.bg} hover:text-white/60`
                                 )}
-                              />
-                              <button 
-                                onClick={handleGrantOverride}
-                                className="bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30 border border-emerald-500/20 px-3 py-1.5 rounded-lg text-[10px] font-bold"
                               >
-                                UNLOCK
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Duration Buttons Grid */}
-                        <div className="space-y-4">
-                          <label className="text-xs text-white uppercase font-black tracking-widest">PILIH PAKET JAM</label>
-                          <div className="grid grid-cols-4 gap-2.5">
-                            {[1, 2, 3, 4, 5, 6, 7, 8].map((hrs) => (
-                              <button 
-                                key={hrs}
-                                onClick={() => handleStartSession(activeRoomId!, hrs)}
-                                className="py-3 px-2 rounded-lg border border-white/5 bg-white/5 hover:bg-white/10 hover:border-white/20 transition-all font-black text-[10px] text-white/80"
-                              >
-                                {hrs} Jam
+                                <s.icon size={14} className={activeRoom?.status === s.id ? s.color : ""} />
+                                {s.label}
                               </button>
                             ))}
                           </div>
-                        </div>
-
-                        {/* Order Selection Section */}
-                        <div className="space-y-4">
-                          <label className="text-xs text-white uppercase font-black tracking-widest">PESANAN TAMBAHAN</label>
-                          <div className="flex items-end gap-3">
-                            <div className="flex-1 space-y-2">
-                              <div className="text-[8px] text-white/20 uppercase font-black tracking-widest pl-1">Cari Menu</div>
-                              <div className="relative">
-                                <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" />
-                                <input 
-                                  type="text" 
-                                  placeholder="Ketik nama menu..."
-                                  value={orderSearchQuery}
-                                  onChange={(e) => setOrderSearchQuery(e.target.value)}
-                                  className="w-full bg-[#050505] border border-white/5 rounded-xl py-3.5 pl-11 pr-4 text-xs focus:outline-none focus:border-white/20 transition-all text-white/80"
-                                />
-                              </div>
-                            </div>
-                            <div className="w-[140px] space-y-2">
-                              <div className="text-[8px] text-white/20 uppercase font-black tracking-widest pl-1">KATAGORI</div>
-                              <div className="relative">
-                                <select 
-                                  value={orderCategoryFilter}
-                                  onChange={(e) => setOrderCategoryFilter(e.target.value)}
-                                  className="appearance-none bg-[#050505] border border-white/5 rounded-xl px-5 py-3.5 text-[10px] font-black uppercase tracking-widest text-white/40 focus:outline-none focus:border-white/20 cursor-pointer pr-10 w-full"
-                                >
-                                  <option value="all">Semua</option>
-                                  <option value="drink">Minuman</option>
-                                  <option value="food">Makanan</option>
-                                </select>
-                                <ChevronDown size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 pointer-events-none" />
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className={cn(
-                            "min-h-[160px] border border-dashed border-white/5 rounded-[32px] flex items-center justify-center text-center bg-white/[0.01] transition-all",
-                            (orderSearchQuery.trim() !== '' || orderCategoryFilter !== 'all') ? "p-4 items-start" : "p-8"
-                          )}>
-                            {orderSearchQuery.trim() !== '' || orderCategoryFilter !== 'all' ? (
-                              <div className="w-full grid grid-cols-1 gap-6 max-h-[240px] overflow-y-auto pr-2 custom-scrollbar text-left">
-                                {['drink', 'food', 'other'].map((cat) => {
-                                  const items = inventory.filter(item => 
-                                    item.category === cat && 
-                                    (orderCategoryFilter === 'all' || orderCategoryFilter === cat) &&
-                                    (item.name.toLowerCase().includes(orderSearchQuery.toLowerCase()))
-                                  );
-
-                                  if (items.length === 0) return null;
-
-                                  return (
-                                    <div key={cat} className="space-y-2.5">
-                                      {orderCategoryFilter === 'all' && (
-                                        <div className="flex items-center gap-2 mb-2">
-                                          <div className="h-px bg-white/5 flex-1"></div>
-                                          <div className="text-[8px] text-white/30 uppercase font-black tracking-widest">{cat === 'drink' ? 'Minuman' : cat === 'food' ? 'Makanan' : 'Lainnya'}</div>
-                                          <div className="h-px bg-white/5 flex-1"></div>
-                                        </div>
-                                      )}
-                                      <div className="grid grid-cols-1 gap-2">
-                                        {items.map((item) => (
-                                          <div
-                                            key={item.id}
-                                            className={cn(
-                                              "flex items-center justify-between gap-3 p-3 bg-white/5 border border-white/5 rounded-xl transition-all",
-                                              item.stock <= 0 && "opacity-40 grayscale"
-                                            )}
-                                          >
-                                            <div className="flex-1 min-w-0">
-                                              <div className="text-[10px] font-bold text-white truncate">{item.name}</div>
-                                              <div className="text-[9px] text-emerald-400 font-mono italic">{formatCurrency(item.price)}</div>
-                                            </div>
-                                            
-                                            {item.stock > 0 ? (
-                                              <button
-                                                onClick={() => addToPendingOrder(item, 1)}
-                                                className="w-8 h-8 flex items-center justify-center bg-emerald-500 rounded-lg text-black hover:bg-emerald-600 transition-all shadow-lg active:scale-95"
-                                              >
-                                                <Plus size={14} strokeWidth={3} />
-                                              </button>
-                                            ) : (
-                                              <div className="text-[8px] font-black uppercase text-white/20">Habis</div>
-                                            )}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <div className="space-y-2">
-                                <p className="text-[9px] text-white/20 uppercase tracking-[0.3em] font-black leading-relaxed">
-                                  KETIK NAMA MENU UNTUK <br /> MENAMBAH PESANAN...
-                                </p>
-                              </div>
-                            )}
-                          </div>
-
-                          {pendingOrders.length > 0 && (
-                            <div className="flex flex-wrap gap-2 pt-2">
-                              {pendingOrders.map(p => (
-                                <div key={p.id} className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full">
-                                  <span className="text-[9px] font-bold text-emerald-400">{p.name} x{p.quantity}</span>
-                                  <button onClick={() => removeFromPendingOrder(p.id)} className="text-emerald-500/40 hover:text-emerald-500">
-                                    <X size={10} />
-                                  </button>
-                                </div>
-                              ))}
+                          {activeRoom?.status !== RoomStatus.AVAILABLE && (
+                            <div className="p-3 bg-red-500/5 border border-red-500/10 rounded-xl">
+                              <p className="text-[9px] text-red-400 font-bold uppercase tracking-widest text-center italic">
+                                Ubah status ke "Siap" untuk memulai sesi karaoke
+                              </p>
                             </div>
                           )}
                         </div>
 
-                          <div className="flex flex-col gap-3 pt-6">
-                            <div className="relative py-4">
-                              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-white/5"></div>
-                              <span className="relative z-10 bg-[#080808] px-4 text-[9px] text-white/10 uppercase tracking-[0.4em] font-black block w-fit mx-auto">PILIHAN LAIN</span>
+                        {activeRoom?.status === RoomStatus.AVAILABLE && (
+                          <div className="space-y-6">
+                            <div className="flex gap-4 p-2 bg-white/5 rounded-3xl border border-white/5">
+                              <button 
+                                onClick={() => setStartMode('manual')}
+                                className={cn(
+                                  "flex-1 py-4 text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all flex items-center justify-center gap-3",
+                                  startMode === 'manual' 
+                                    ? "bg-white/10 text-white shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-white/10" 
+                                    : "text-white/30 hover:text-white/60"
+                                )}
+                              >
+                                <Settings size={16} strokeWidth={2.5} />
+                                MANUAL
+                              </button>
+                              <button 
+                                onClick={() => setStartMode('package')}
+                                className={cn(
+                                  "flex-1 py-4 text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all flex items-center justify-center gap-3",
+                                  startMode === 'package' 
+                                    ? "bg-white/10 text-white shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-white/10" 
+                                    : "text-white/30 hover:text-white/60"
+                                )}
+                              >
+                                <PackageSearch size={16} strokeWidth={2.5} />
+                                SISTEM PAKET
+                              </button>
                             </div>
 
-                            <button 
-                              onClick={() => handleStartSession(activeRoomId!)}
-                              className="w-full h-16 bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] text-white/40 transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
-                            >
-                              <Play size={18} fill="currentColor" className="text-white/20" />
-                              Mulai Tanpa Batas (Open-Ended)
-                            </button>
+                            {startMode === 'manual' ? (
+                              <div className="space-y-8 pt-2">
+                                {/* Rate Control */}
+                                <div className="flex items-center justify-between gap-6">
+                                  <label className="text-xs text-white uppercase font-black tracking-widest whitespace-nowrap">HARGA PER JAM</label>
+                                  <div className="flex-1 relative">
+                                    <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-white/20 text-[9px] font-mono">
+                                      Rp
+                                    </div>
+                                    <input 
+                                      type="number" 
+                                      value={customRate || 0}
+                                      onChange={(e) => setCustomRate(Number(e.target.value))}
+                                      disabled={!(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked)}
+                                      className={cn(
+                                        "w-full bg-[#050505] border border-white/5 rounded-lg py-2.5 pl-9 pr-4 text-xs font-mono focus:outline-none focus:border-white/20 transition-all",
+                                        !(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && "opacity-40 cursor-not-allowed"
+                                      )}
+                                    />
+                                  </div>
+                                  {(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && (
+                                    <div className="flex items-center gap-1.5 text-[8px] text-emerald-400 font-black uppercase tracking-widest">
+                                      <ShieldCheck size={14} className="text-emerald-500" />
+                                      TEROTORISASI EDIT
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* PIN Unlock if needed */}
+                                {!(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && (
+                                  <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between gap-4">
+                                    <div className="flex items-center gap-2 text-[9px] text-white/40 font-bold uppercase tracking-widest">
+                                      <Shield size={12} /> Buka Akses Edit Harga
+                                    </div>
+                                    <div className="flex gap-2 flex-1 max-w-[200px]">
+                                      <input 
+                                        type="password" 
+                                        placeholder="PIN Admin"
+                                        value={overridePassword}
+                                        onChange={(e) => {
+                                          setOverridePassword(e.target.value);
+                                          setOverrideError(false);
+                                        }}
+                                        className={cn(
+                                          "w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] font-mono focus:outline-none focus:border-white/30 transition-all",
+                                          overrideError && "border-red-500/50"
+                                        )}
+                                      />
+                                      <button 
+                                        onClick={handleGrantOverride}
+                                        className="bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30 border border-emerald-500/20 px-3 py-1.5 rounded-lg text-[10px] font-bold"
+                                      >
+                                        UNLOCK
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Duration Buttons Grid */}
+                                <div className="space-y-4">
+                                  <label className="text-xs text-white uppercase font-black tracking-widest">PILIH PAKET JAM</label>
+                                  <div className="grid grid-cols-4 gap-2.5">
+                                    {[1, 2, 3, 4, 5, 6, 7, 8].map((hrs) => (
+                                      <button 
+                                        key={hrs}
+                                        onClick={() => handleStartSession(activeRoomId!, hrs)}
+                                        className="py-3 px-2 rounded-lg border border-white/5 bg-white/5 hover:bg-white/10 hover:border-white/20 transition-all font-black text-[10px] text-white/80"
+                                      >
+                                        {hrs} Jam
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {/* Order Selection Section */}
+                                <div className="space-y-4">
+                                  <label className="text-xs text-white uppercase font-black tracking-widest">PESANAN TAMBAHAN</label>
+                                  <div className="flex items-end gap-3">
+                                    <div className="flex-1 space-y-2">
+                                      <div className="text-[8px] text-white/20 uppercase font-black tracking-widest pl-1">Cari Menu</div>
+                                      <div className="relative">
+                                        <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" />
+                                        <input 
+                                          type="text" 
+                                          placeholder="Ketik nama menu..."
+                                          value={orderSearchQuery}
+                                          onChange={(e) => setOrderSearchQuery(e.target.value)}
+                                          className="w-full bg-[#050505] border border-white/5 rounded-xl py-3.5 pl-11 pr-4 text-xs focus:outline-none focus:border-white/20 transition-all text-white/80"
+                                        />
+                                      </div>
+                                    </div>
+                                    <div className="w-[140px] space-y-2">
+                                      <div className="text-[8px] text-white/20 uppercase font-black tracking-widest pl-1">KATAGORI</div>
+                                      <div className="relative">
+                                        <select 
+                                          value={orderCategoryFilter}
+                                          onChange={(e) => setOrderCategoryFilter(e.target.value)}
+                                          className="appearance-none bg-[#050505] border border-white/5 rounded-xl px-5 py-3.5 text-[10px] font-black uppercase tracking-widest text-white/40 focus:outline-none focus:border-white/20 cursor-pointer pr-10 w-full"
+                                        >
+                                          <option value="all">Semua</option>
+                                          <option value="food">Makanan</option>
+                                          <option value="drink">Minuman</option>
+                                          <option value="smoke">Rokok</option>
+                                          <option value="other">Lainnya</option>
+                                        </select>
+                                        <ChevronDown size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 pointer-events-none" />
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className={cn(
+                                    "min-h-[160px] border border-dashed border-white/5 rounded-[32px] flex items-center justify-center text-center bg-white/[0.01] transition-all",
+                                    (orderSearchQuery.trim() !== '' || orderCategoryFilter !== 'all') ? "p-4 items-start" : "p-8"
+                                  )}>
+                                    {orderSearchQuery.trim() !== '' || orderCategoryFilter !== 'all' ? (
+                                      <div className="w-full grid grid-cols-1 gap-6 max-h-[240px] overflow-y-auto pr-2 custom-scrollbar text-left">
+                                        {['food', 'drink', 'smoke', 'other'].map((cat) => {
+                                          const items = inventory.filter(item => 
+                                            item.category === cat && 
+                                            (orderCategoryFilter === 'all' || orderCategoryFilter === cat) &&
+                                            (item.name.toLowerCase().includes(orderSearchQuery.toLowerCase()))
+                                          );
+
+                                          if (items.length === 0) return null;
+
+                                          return (
+                                            <div key={cat} className="space-y-2.5">
+                                              {orderCategoryFilter === 'all' && (
+                                                <div className="flex items-center gap-2 mb-2">
+                                                  <div className="h-px bg-white/5 flex-1"></div>
+                                                  <div className="text-[8px] text-white/30 uppercase font-black tracking-widest">
+                                                    {cat === 'food' ? 'Makanan' : cat === 'drink' ? 'Minuman' : cat === 'smoke' ? 'Rokok' : 'Lainnya'}
+                                                  </div>
+                                                  <div className="h-px bg-white/5 flex-1"></div>
+                                                </div>
+                                              )}
+                                              <div className="grid grid-cols-1 gap-2">
+                                                {items.map((item) => (
+                                                  <div
+                                                    key={item.id}
+                                                    className={cn(
+                                                      "flex items-center justify-between gap-3 p-3 bg-white/5 border border-white/5 rounded-xl transition-all",
+                                                      item.stock <= 0 && "opacity-40 grayscale"
+                                                    )}
+                                                  >
+                                                    <div className="flex-1 min-w-0">
+                                                      <div className="text-[10px] font-bold text-white truncate">{item.name}</div>
+                                                      <div className="text-[9px] text-emerald-400 font-mono italic">{formatCurrency(item.price)}</div>
+                                                    </div>
+                                                    
+                                                    {item.stock > 0 ? (
+                                                      <button
+                                                        onClick={() => addToPendingOrder(item, 1)}
+                                                        className="w-8 h-8 flex items-center justify-center bg-emerald-500 rounded-lg text-black hover:bg-emerald-600 transition-all shadow-lg active:scale-95"
+                                                      >
+                                                        <Plus size={14} strokeWidth={3} />
+                                                      </button>
+                                                    ) : (
+                                                      <div className="text-[8px] font-black uppercase text-white/20">Habis</div>
+                                                    )}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        <p className="text-[9px] text-white/20 uppercase tracking-[0.3em] font-black leading-relaxed">
+                                          KETIK NAMA MENU UNTUK <br /> MENAMBAH PESANAN...
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {pendingOrders.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 pt-2">
+                                      {pendingOrders.map(p => (
+                                        <div key={p.id} className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full">
+                                          <span className="text-[9px] font-bold text-emerald-400">{p.name} x{p.quantity}</span>
+                                          <button onClick={() => removeFromPendingOrder(p.id)} className="text-emerald-500/40 hover:text-emerald-500">
+                                            <X size={10} />
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="flex flex-col gap-3 pt-6">
+                                  <div className="relative py-4">
+                                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-white/5"></div>
+                                    <span className="relative z-10 bg-[#080808] px-4 text-[9px] text-white/10 uppercase tracking-[0.4em] font-black block w-fit mx-auto">PILIHAN LAIN</span>
+                                  </div>
+
+                                  <button 
+                                    onClick={() => handleStartSession(activeRoomId!)}
+                                    className="w-full h-16 bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] text-white/40 transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
+                                  >
+                                    <Play size={18} fill="currentColor" className="text-white/20" />
+                                    Mulai Tanpa Batas (Open-Ended)
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-4">
+                                <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-2">Pilih Paket Penjualan</div>
+                                <div className="grid grid-cols-1 gap-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                  {packages
+                                    .filter(p => p.roomType === 'all' || p.roomType === activeRoom?.type)
+                                    .map((pkg) => (
+                                      <button
+                                        key={pkg.id}
+                                        onClick={() => handleStartSessionWithPackage(activeRoom!.id, pkg.id)}
+                                        className="group relative p-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-emerald-500/10 hover:border-emerald-500/30 transition-all text-left"
+                                      >
+                                        <div className="flex justify-between items-start mb-2">
+                                          <div>
+                                            <h4 className="font-bold text-white mb-1 tracking-tight">{pkg.name}</h4>
+                                            <p className="text-[10px] text-white/40 leading-relaxed font-medium">{pkg.description}</p>
+                                          </div>
+                                          <div className="text-emerald-400 font-mono font-bold">{formatCurrency(pkg.price)}</div>
+                                        </div>
+                                        <div className="flex items-center gap-2 mt-4">
+                                          <div className="flex items-center gap-1 py-1.5 px-3 bg-white/10 rounded-lg text-[9px] text-white/60 font-bold uppercase tracking-wider">
+                                            <Clock size={10} /> {pkg.durationHours} Jam
+                                          </div>
+                                          <div className="flex items-center gap-1 py-1.5 px-3 bg-emerald-500/20 rounded-lg text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
+                                            <ShoppingBag size={10} /> {pkg.items.length} Item F&B
+                                          </div>
+                                        </div>
+                                      </button>
+                                    ))}
+                                </div>
+                                {packages.filter(p => p.roomType === 'all' || p.roomType === activeRoom?.type).length === 0 && (
+                                  <div className="p-10 text-center text-white/20">
+                                    <PackageSearch size={40} className="mx-auto mb-4 opacity-10" />
+                                    <p className="text-xs uppercase tracking-widest font-bold">Tidak ada paket tersedia untuk tipe room ini.</p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
-                      </div>
-                    ) : (
-                  <div className="space-y-4">
-                    <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-2">Pilih Paket Penjualan</div>
-                    <div className="grid grid-cols-1 gap-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                      {packages
-                        .filter(p => p.roomType === 'all' || p.roomType === activeRoom?.type)
-                        .map((pkg) => (
-                          <button
-                            key={pkg.id}
-                            onClick={() => handleStartSessionWithPackage(activeRoom!.id, pkg.id)}
-                            className="group relative p-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-emerald-500/10 hover:border-emerald-500/30 transition-all text-left"
-                          >
-                            <div className="flex justify-between items-start mb-2">
-                              <div>
-                                <h4 className="font-bold text-white mb-1 tracking-tight">{pkg.name}</h4>
-                                <p className="text-[10px] text-white/40 leading-relaxed font-medium">{pkg.description}</p>
-                              </div>
-                              <div className="text-emerald-400 font-mono font-bold">{formatCurrency(pkg.price)}</div>
-                            </div>
-                            <div className="flex items-center gap-2 mt-4">
-                              <div className="flex items-center gap-1 py-1.5 px-3 bg-white/10 rounded-lg text-[9px] text-white/60 font-bold uppercase tracking-wider">
-                                <Clock size={10} /> {pkg.durationHours} Jam
-                              </div>
-                              <div className="flex items-center gap-1 py-1.5 px-3 bg-emerald-500/20 rounded-lg text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
-                                <ShoppingBag size={10} /> {pkg.items.length} Item F&B
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                    </div>
-                    {packages.filter(p => p.roomType === 'all' || p.roomType === activeRoom?.type).length === 0 && (
-                      <div className="p-10 text-center text-white/20">
-                        <PackageSearch size={40} className="mx-auto mb-4 opacity-10" />
-                        <p className="text-xs uppercase tracking-widest font-bold">Tidak ada paket tersedia untuk tipe room ini.</p>
+                        )}
                       </div>
                     )}
                   </div>
                 )}
               </div>
-            )}
+            </motion.div>
           </div>
-        </motion.div>
-      </div>
-    )}
-      </AnimatePresence>
+        )}
+</AnimatePresence>
 
       {/* Package Form Modal */}
       <AnimatePresence>
@@ -3199,8 +3491,19 @@ export default function App() {
                          <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded-full">{pkgItems.length} Terpilih</span>
                        </div>
                        
-                       <div className="space-y-3 bg-black/40 border border-white/5 p-4 rounded-3xl max-h-[400px] overflow-y-auto custom-scrollbar">
-                         {inventory.map(item => {
+                        <div className="relative group">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-emerald-500 transition-colors" />
+                          <input 
+                            type="text" 
+                            placeholder="Cari item inventory..." 
+                            value={pkgSearchQuery}
+                            onChange={(e) => setPkgSearchQuery(e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-xs focus:outline-none focus:border-emerald-500/50 transition-all font-medium"
+                          />
+                        </div>
+                        
+                        <div className="space-y-3 bg-black/40 border border-white/5 p-4 rounded-3xl max-h-[340px] overflow-y-auto custom-scrollbar">
+                         {inventory.filter(item => item.name.toLowerCase().includes(pkgSearchQuery.toLowerCase())).map(item => {
                             const selected = pkgItems.find(pi => pi.itemId === item.id);
                             return (
                               <div key={item.id} className="flex items-center justify-between gap-3 p-3 hover:bg-white/5 rounded-2xl transition-all group">

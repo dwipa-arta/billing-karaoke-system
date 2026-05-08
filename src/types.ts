@@ -52,7 +52,7 @@ export interface InventoryItem {
   name: string;
   price: number;
   purchasePrice?: number;
-  category: 'drink' | 'food' | 'other';
+  category: 'drink' | 'food' | 'smoke' | 'other';
   stock: number;
   unit?: string;
 }
