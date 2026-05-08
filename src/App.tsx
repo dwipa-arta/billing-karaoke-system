@@ -28,19 +28,25 @@ import {
   Wifi,
   WifiOff,
   ChevronDown,
+  Minus,
+  Edit2,
   Save,
   Check,
   Trash2,
-  Package,
+  Package as PackageIcon,
   Search,
   List,
   ArrowUpDown,
   Activity,
   FileText,
   PlusCircle,
+  LayoutGrid,
+  Rows,
   ChevronRight,
   Download,
-  Printer
+  Printer,
+  PackageSearch,
+  ShoppingBag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -54,8 +60,8 @@ import {
   Cell
 } from 'recharts';
 import { cn } from './lib/utils';
-import { Room, RoomStatus, RoomType, Session, RoomRate, User, UserRole, InventoryItem, OrderItem, InventoryLog } from './types';
-import { INITIAL_ROOMS, DEFAULT_RATES, INITIAL_INVENTORY } from './constants';
+import { Room, RoomStatus, RoomType, Session, RoomRate, User, UserRole, InventoryItem, OrderItem, InventoryLog, Package } from './types';
+import { INITIAL_ROOMS, DEFAULT_RATES, INITIAL_INVENTORY, INITIAL_PACKAGES } from './constants';
 
 const MOCK_USERS: User[] = [
   { id: '1', name: 'Super Admin', role: UserRole.ADMIN, avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', password: 'admin' },
@@ -172,11 +178,36 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
     const saved = localStorage.getItem('hachiko_inventory');
-    return saved ? JSON.parse(saved) : INITIAL_INVENTORY;
+    if (!saved) return INITIAL_INVENTORY;
+    
+    try {
+      const parsed = JSON.parse(saved) as InventoryItem[];
+      const existingIds = new Set(parsed.map(i => i.id));
+      const missingDefaults = INITIAL_INVENTORY.filter(i => !existingIds.has(i.id));
+      
+      if (missingDefaults.length > 0) {
+        return [...parsed, ...missingDefaults];
+      }
+      return parsed;
+    } catch (e) {
+      return INITIAL_INVENTORY;
+    }
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [view, setView] = useState<'dashboard' | 'history' | 'settings'>('dashboard');
+  const [dashboardViewMode, setDashboardViewMode] = useState<'detail' | 'list'>('detail');
+  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
+  const [packages, setPackages] = useState<Package[]>(() => {
+    const saved = localStorage.getItem('hachiko_packages');
+    return saved ? JSON.parse(saved) : INITIAL_PACKAGES;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('hachiko_packages', JSON.stringify(packages));
+  }, [packages]);
+
+  const [startMode, setStartMode] = useState<'manual' | 'package'>('manual');
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [loginPassword, setLoginPassword] = useState('');
   const [attemptingUser, setAttemptingUser] = useState<User | null>(null);
@@ -242,7 +273,34 @@ export default function App() {
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [mgmtCategoryFilter, setMgmtCategoryFilter] = useState<string>('all');
   const [mgmtSearchQuery, setMgmtSearchQuery] = useState('');
-  const [inventorySubMenu, setInventorySubMenu] = useState<'master' | 'transaction' | 'monitoring' | 'report'>('master');
+  const [editingPackage, setEditingPackage] = useState<Package | null>(null);
+  const [showPackageForm, setShowPackageForm] = useState(false);
+  const [pkgName, setPkgName] = useState('');
+  const [pkgDesc, setPkgDesc] = useState('');
+  const [pkgPrice, setPkgPrice] = useState(0);
+  const [pkgDuration, setPkgDuration] = useState(1);
+  const [pkgRoomType, setPkgRoomType] = useState<RoomType | 'all'>('all');
+  const [pkgItems, setPkgItems] = useState<{itemId: string, quantity: number}[]>([]);
+
+  useEffect(() => {
+    if (editingPackage) {
+      setPkgName(editingPackage.name);
+      setPkgDesc(editingPackage.description);
+      setPkgPrice(editingPackage.price);
+      setPkgDuration(editingPackage.durationHours);
+      setPkgRoomType(editingPackage.roomType);
+      setPkgItems(editingPackage.items);
+    } else {
+      setPkgName('');
+      setPkgDesc('');
+      setPkgPrice(0);
+      setPkgDuration(1);
+      setPkgRoomType('all');
+      setPkgItems([]);
+    }
+  }, [editingPackage, showPackageForm]);
+
+  const [inventorySubMenu, setInventorySubMenu] = useState<'master' | 'transaction' | 'monitoring' | 'report' | 'package'>('master');
   const [inventoryLogs, setInventoryLogs] = useState<InventoryLog[]>([
     {
       id: 'log1',
@@ -435,6 +493,7 @@ export default function App() {
   const [pendingOrders, setPendingOrders] = useState<OrderItem[]>([]);
   const [orderCategoryFilter, setOrderCategoryFilter] = useState<string>('all');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [orderDraftQuantities, setOrderDraftQuantities] = useState<{[key: string]: number}>({});
 
   // Initialize custom rate and reset pending orders when opening a room
   useEffect(() => {
@@ -454,7 +513,7 @@ export default function App() {
     }
   }, [activeRoomId, activeSession, rooms]);
 
-  const addToPendingOrder = (item: InventoryItem) => {
+  const addToPendingOrder = (item: InventoryItem, qty: number = 1) => {
     // Stock Validation
     const currentStock = item.stock;
     
@@ -462,15 +521,15 @@ export default function App() {
       const existing = prev.find(p => p.id === item.id);
       const currentQty = existing ? existing.quantity : 0;
       
-      if (currentQty >= currentStock) {
+      if (currentQty + qty > currentStock) {
         alert(`Stok tidak mencukupi! Sisa stok ${item.name}: ${currentStock}`);
         return prev;
       }
 
       if (existing) {
-        return prev.map(p => p.id === item.id ? { ...p, quantity: p.quantity + 1 } : p);
+        return prev.map(p => p.id === item.id ? { ...p, quantity: p.quantity + qty } : p);
       }
-      return [...prev, { id: item.id, name: item.name, price: item.price, quantity: 1 }];
+      return [...prev, { id: item.id, name: item.name, price: item.price, quantity: qty }];
     });
   };
 
@@ -484,15 +543,14 @@ export default function App() {
     });
   };
 
-  const addOrderToActiveSession = (item: InventoryItem) => {
+  const addOrderToActiveSession = (item: InventoryItem, qty: number = 1) => {
     if (!activeSession) return;
     
     // Stock Validation
     const currentStock = item.stock;
-    const existingInSession = (activeSession.orders || []).find(o => o.id === item.id);
-    const sessionQty = existingInSession ? existingInSession.quantity : 0;
+    const existingInSessionTotal = (activeSession.orders || []).filter(o => o.id === item.id).reduce((sum, o) => sum + o.quantity, 0);
 
-    if (sessionQty >= currentStock) {
+    if (existingInSessionTotal + qty > currentStock) {
       alert(`Stok tidak mencukupi! Sisa stok ${item.name}: ${currentStock}`);
       return;
     }
@@ -500,10 +558,10 @@ export default function App() {
     setSessions(prev => prev.map(s => {
       if (s.id === activeSession.id) {
         const orders = s.orders || [];
-        const existing = orders.find(o => o.id === item.id);
+        const existing = orders.find(o => o.id === item.id && o.price === item.price);
         const newOrders = existing 
-          ? orders.map(o => o.id === item.id ? { ...o, quantity: o.quantity + 1 } : o)
-          : [...orders, { id: item.id, name: item.name, price: item.price, quantity: 1 }];
+          ? orders.map(o => (o.id === item.id && o.price === item.price) ? { ...o, quantity: o.quantity + qty } : o)
+          : [...orders, { id: item.id, name: item.name, price: item.price, quantity: qty }];
         return { ...s, orders: newOrders };
       }
       return s;
@@ -548,6 +606,43 @@ export default function App() {
     setActiveRoomId(null);
   };
 
+  const handleStartSessionWithPackage = (roomId: string, pkgId: string) => {
+    const room = rooms.find(r => r.id === roomId);
+    const pkg = packages.find(p => p.id === pkgId);
+    if (!room || !pkg) return;
+
+    // Convert package items to OrderItems (0 price because they are bundled)
+    const packageOrderItems: OrderItem[] = pkg.items.map(pi => {
+      const invItem = inventory.find(i => i.id === pi.itemId);
+      return {
+        id: pi.itemId,
+        name: invItem?.name || 'Item Paket',
+        price: 0, // Bundled price
+        quantity: pi.quantity
+      };
+    });
+
+    const newSession: Session = {
+      id: Math.random().toString(36).substr(2, 9),
+      roomId,
+      startTime: Date.now(),
+      endTime: Date.now() + pkg.durationHours * 60 * 60 * 1000,
+      fixedDurationMinutes: pkg.durationHours * 60,
+      ratePerHour: 0, // Rate is covered by package
+      isPackage: true,
+      packageId: pkg.id,
+      packagePrice: pkg.price,
+      status: 'active',
+      customerName: `Paket - ${room.name}`,
+      orders: packageOrderItems
+    };
+
+    setSessions(prev => [...prev, newSession]);
+    setRooms(prev => prev.map(r => r.id === roomId ? { ...r, status: RoomStatus.ACTIVE, currentSessionId: newSession.id } : r));
+    setActiveRoomId(null);
+    setSelectedPackageId(null);
+  };
+
   const handleEndSession = (sessionId: string) => {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
@@ -556,11 +651,15 @@ export default function App() {
     const durationMs = actualEndTime - session.startTime;
     const durationHours = durationMs / (1000 * 60 * 60);
     
-    // Room Cost
-    const billedHours = Math.max(1, Math.round(durationHours));
-    const roomCost = billedHours * session.ratePerHour;
+    let roomCost = 0;
+    if (session.isPackage && session.packagePrice) {
+      roomCost = session.packagePrice;
+    } else {
+      const billedHours = Math.max(1, Math.round(durationHours));
+      roomCost = billedHours * session.ratePerHour;
+    }
     
-    // Orders Cost
+    // Orders Cost (additional orders)
     const ordersCost = (session.orders || []).reduce((sum, item) => sum + (item.price * item.quantity), 0);
     
     const totalCost = roomCost + ordersCost;
@@ -570,21 +669,22 @@ export default function App() {
       const newLogs: InventoryLog[] = [];
       
       setInventory(prev => prev.map(invItem => {
-        const order = session.orders?.find(o => o.id === invItem.id);
-        if (order) {
+        const matchingOrders = session.orders?.filter(o => o.id === invItem.id) || [];
+        if (matchingOrders.length > 0) {
+          const totalQty = matchingOrders.reduce((sum, o) => sum + o.quantity, 0);
           // Create log for automatic sale
           newLogs.push({
             id: Math.random().toString(36).substr(2, 9),
             itemId: invItem.id,
             itemName: invItem.name,
             type: 'out',
-            quantity: order.quantity,
+            quantity: totalQty,
             date: new Date().toISOString(),
             performedBy: 'System (Sales)',
             refNo: `BILL-${session.id.slice(0, 4).toUpperCase()}`,
             note: `Penjualan Room ${session.roomId}`
           });
-          return { ...invItem, stock: Math.max(0, invItem.stock - order.quantity) };
+          return { ...invItem, stock: Math.max(0, invItem.stock - totalQty) };
         }
         return invItem;
       }));
@@ -622,9 +722,14 @@ export default function App() {
     const elapsedMs = currentTime - session.startTime;
     const elapsedHours = elapsedMs / (1000 * 60 * 60);
     
-    // Room Cost
-    const billedHours = Math.max(1, Math.round(elapsedHours));
-    const roomCost = billedHours * session.ratePerHour;
+    let roomCost = 0;
+    if (session.isPackage && session.packagePrice) {
+      roomCost = session.packagePrice;
+    } else {
+      // Room Cost
+      const billedHours = Math.max(1, Math.round(elapsedHours));
+      roomCost = billedHours * session.ratePerHour;
+    }
     
     // Orders Cost
     const ordersCost = (session.orders || []).reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -851,17 +956,42 @@ export default function App() {
                   <p className="text-xs text-white/40">Pemantauan ruangan secara real-time.</p>
                 </div>
                 
-                <div className="flex flex-1 max-w-md relative group">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-white/20 group-focus-within:text-white/40 transition-colors">
-                    <History size={16} />
+                <div className="flex flex-col md:flex-row items-center gap-4 flex-1 max-w-2xl">
+                  <div className="flex flex-1 relative group w-full">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-white/20 group-focus-within:text-white/40 transition-colors">
+                      <Search size={16} />
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="Cari ruangan..." 
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full bg-[#111] border border-white/5 rounded-xl py-2.5 pl-10 pr-4 text-xs focus:outline-none focus:border-white/20 transition-all shadow-xl"
+                    />
                   </div>
-                  <input 
-                    type="text" 
-                    placeholder="Cari ruangan..." 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-[#111] border border-white/5 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-all"
-                  />
+
+                  <div className="flex p-0.5 bg-[#111] rounded-lg border border-white/5">
+                    <button 
+                      onClick={() => setDashboardViewMode('detail')}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all",
+                        dashboardViewMode === 'detail' ? "bg-white/10 text-white shadow-lg" : "text-white/40 hover:text-white"
+                      )}
+                    >
+                      <LayoutGrid size={12} />
+                      Detail
+                    </button>
+                    <button 
+                      onClick={() => setDashboardViewMode('list')}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all",
+                        dashboardViewMode === 'list' ? "bg-white/10 text-white shadow-lg" : "text-white/40 hover:text-white"
+                      )}
+                    >
+                      <Rows size={12} />
+                      List
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex gap-2">
@@ -876,15 +1006,90 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Room Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                <AnimatePresence>
+              {/* Room Cards Display */}
+              <div className={cn(
+                dashboardViewMode === 'detail' 
+                  ? "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
+                  : "flex flex-col gap-2"
+              )}>
+                <AnimatePresence mode="popLayout">
                   {rooms
                     .filter(r => r.name.toLowerCase().includes(searchQuery.toLowerCase()) || r.type.toLowerCase().includes(searchQuery.toLowerCase()))
                     .map((room) => {
                     const session = sessions.find(s => s.roomId === room.id && s.status === 'active');
                     const isOccupied = room.status === RoomStatus.ACTIVE;
-                    const isOnline = room.lastHeartbeat && (currentTime - room.lastHeartbeat < 30000); // 30s threshold
+                    const isOnline = room.lastHeartbeat && (currentTime - room.lastHeartbeat < 30000); 
+                    
+                    if (dashboardViewMode === 'list') {
+                      return (
+                        <motion.div
+                          key={room.id}
+                          layout
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: 10 }}
+                          onClick={() => setActiveRoomId(room.id)}
+                          className={cn(
+                            "flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer group hover:shadow-xl",
+                            isOccupied 
+                              ? "bg-red-500/5 border-red-500/20 hover:border-red-500/40" 
+                              : "bg-[#0A0A0A] border-white/5 hover:border-white/20"
+                          )}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={cn(
+                              "w-12 h-12 rounded-xl flex items-center justify-center shadow-inner transition-colors",
+                              isOccupied ? "bg-red-500/20 text-red-500" : "bg-emerald-500/10 text-emerald-500"
+                            )}>
+                              <Mic2 size={24} />
+                            </div>
+                            <div>
+                               <h3 className="font-bold text-sm tracking-tight flex items-center gap-2">
+                                 {room.name}
+                                 {isOnline && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>}
+                               </h3>
+                               <p className="text-[10px] text-white/40 font-mono uppercase tracking-widest">{room.type}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex-1 px-8 hidden md:block">
+                            {isOccupied && session ? (
+                              <div className="flex items-center gap-6">
+                                <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-lg">
+                                  <div className="text-[8px] text-white/20 uppercase font-black">Sisa:</div>
+                                  <div className={cn(
+                                    "text-xs font-black font-mono",
+                                    getRemainingTime(session) < 600000 ? "text-red-500 animate-pulse" : "text-white"
+                                  )}>
+                                    {formatTime(getRemainingTime(session))}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-lg">
+                                  <div className="text-[8px] text-white/20 uppercase font-black">Tagihan:</div>
+                                  <div className="text-xs font-black font-mono text-emerald-400">
+                                    {formatCurrency(calculateCurrentCost(session))}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 text-[10px] text-white/20 italic">
+                                <History size={12} />
+                                Ruangan kosong. Siap digunakan.
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-4">
+                            {isOccupied ? (
+                              <div className="px-3 py-1.5 bg-red-500 text-black text-[10px] font-black uppercase tracking-tighter rounded-lg shadow-lg">AKTIF</div>
+                            ) : (
+                              <div className="px-3 py-1.5 bg-white/5 text-white/40 text-[10px] font-black uppercase tracking-tighter rounded-lg">SIAP</div>
+                            )}
+                            <ChevronRight size={18} className="text-white/10 group-hover:text-white/40 transition-colors" />
+                          </div>
+                        </motion.div>
+                      );
+                    }
                     
                     return (
                       <motion.div
@@ -913,6 +1118,11 @@ export default function App() {
                                 )}></div>
                                 {isOccupied ? 'Aktif' : 'Ready'}
                               </div>
+                              {isOccupied && session?.isPackage && (
+                                <div className="bg-amber-500/20 text-amber-500 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter border border-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.1)]">
+                                  Paket
+                                </div>
+                              )}
                             </div>
                             
                             {/* Online Indicator */}
@@ -952,15 +1162,15 @@ export default function App() {
                                 : formatTime(currentTime - session.startTime)
                               }
                             </div>
-                            <div className="pt-3 border-t border-white/5 flex justify-between items-end">
-                              <div className="text-[10px] text-white/40 mb-0.5">Bill (Jam Berjalan)</div>
-                              <div className="text-md font-bold text-emerald-400">{formatCurrency(calculateCurrentCost(session))}</div>
+                            <div className="pt-3 border-t border-white/5 flex items-center gap-2">
+                              <div className="text-[8px] text-white/20 uppercase font-black">Tagihan:</div>
+                              <div className="text-xs font-bold font-mono text-emerald-400">{formatCurrency(calculateCurrentCost(session))}</div>
                             </div>
                           </div>
                         ) : (
                           <div className="py-1 flex flex-col items-center text-white/10 group-hover:text-white/40 transition-colors">
-                            <Plus size={20} strokeWidth={1.5} />
-                            <span className="text-[9px] font-medium uppercase tracking-widest mt-0.5">Sewa</span>
+                            <Plus size={20} strokeWidth={2} />
+                            <span className="text-[8px] font-black uppercase tracking-[0.2em] mt-1.5">+ SEWA & PESANAN</span>
                           </div>
                         )}
                       </motion.div>
@@ -1014,7 +1224,7 @@ export default function App() {
                   </div>
                   <div className="text-[10px] text-white/40 font-mono">NILAI DALAM IDR (K)</div>
                 </div>
-                <div className="h-[300px] w-full">
+                <div className="h-[200px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
@@ -1140,7 +1350,7 @@ export default function App() {
                 <div className="px-8 py-6 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
                    <div className="space-y-1">
                     <h3 className="font-bold text-sm uppercase tracking-widest flex items-center gap-2">
-                      <Package size={16} /> Daftar Menu & Stok Inventory
+                      <PackageIcon size={16} /> Daftar Menu & Stok Inventory
                     </h3>
                     <p className="text-[10px] text-white/40">Total {inventory.length} menu terdaftar | Nilai aset: {formatCurrency(inventory.reduce((sum, item) => sum + (item.price * item.stock), 0))}</p>
                    </div>
@@ -1576,6 +1786,7 @@ export default function App() {
                     <div className="flex flex-wrap items-center gap-1 bg-white/5 p-1 rounded-xl">
                       {[
                         { id: 'master', label: 'Data Master', icon: List },
+                        { id: 'package', label: 'Manajemen Paket', icon: PackageIcon },
                         { id: 'transaction', label: 'Transaksi', icon: ArrowUpDown },
                         { id: 'monitoring', label: 'Kontrol', icon: Activity },
                         { id: 'report', label: 'Laporan', icon: FileText },
@@ -1747,6 +1958,105 @@ export default function App() {
                           </button>
                         </div>
                       </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {inventorySubMenu === 'package' && (
+                <div className="space-y-6">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/5 p-4 rounded-2xl border border-white/5">
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-sm uppercase tracking-widest flex items-center gap-2">
+                        <PackageIcon size={16} /> Daftar Paket Room & Menu
+                      </h3>
+                      <p className="text-[10px] text-white/40">Total {packages.length} paket terdaftar</p>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        setEditingPackage(null);
+                        setShowPackageForm(true);
+                      }}
+                      className="bg-emerald-500 hover:bg-emerald-600 text-black px-4 py-2 rounded-xl text-[10px] font-bold uppercase transition-all flex items-center gap-2 shadow-lg"
+                    >
+                      <Plus size={14} /> Tambah Paket Baru
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {packages.map((pkg) => (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        key={pkg.id}
+                        className="bg-white/5 border border-white/10 rounded-3xl p-6 hover:bg-white/[0.07] transition-all group"
+                      >
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="p-3 bg-emerald-500/10 rounded-2xl text-emerald-500">
+                             <PackageIcon size={24} />
+                          </div>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => {
+                                setEditingPackage(pkg);
+                                setShowPackageForm(true);
+                              }}
+                              className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-colors"
+                            >
+                              <Edit2 size={14} />
+                            </button>
+                            <button 
+                              onClick={() => {
+                                if(confirm('Hapus paket ini?')) {
+                                  setPackages(prev => prev.filter(p => p.id !== pkg.id));
+                                }
+                              }}
+                              className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white/40 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div>
+                            <h4 className="font-bold text-lg tracking-tight mb-1">{pkg.name}</h4>
+                            <p className="text-xs text-white/40 line-clamp-2">{pkg.description}</p>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-black/20 p-3 rounded-2xl">
+                              <div className="text-[8px] text-white/30 uppercase font-black tracking-tighter mb-1">Room Type</div>
+                              <div className="text-xs font-bold text-emerald-400 capitalize">{pkg.roomType === 'all' ? 'All Rooms' : pkg.roomType}</div>
+                            </div>
+                            <div className="bg-black/20 p-3 rounded-2xl">
+                              <div className="text-[8px] text-white/30 uppercase font-black tracking-tighter mb-1">Durasi</div>
+                              <div className="text-xs font-bold text-white">{pkg.durationHours} Jam</div>
+                            </div>
+                          </div>
+
+                          <div className="bg-black/20 p-4 rounded-2xl">
+                            <div className="text-[8px] text-white/30 uppercase font-black tracking-tighter mb-2">Item Bundling</div>
+                            <div className="space-y-1.5">
+                              {pkg.items.map((pi, idx) => {
+                                const item = inventory.find(i => i.id === pi.itemId);
+                                return (
+                                  <div key={idx} className="text-[10px] flex justify-between">
+                                    <span className="text-white/60">{item?.name || 'Unknown'}</span>
+                                    <span className="font-bold">x{pi.quantity}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="pt-2">
+                             <div className="text-2xl font-black text-white tracking-tighter">
+                               {formatCurrency(pkg.price)}
+                             </div>
+                          </div>
+                        </div>
+                      </motion.div>
                     ))}
                   </div>
                 </div>
@@ -2334,9 +2644,14 @@ export default function App() {
             >
               <div className="p-8 border-b border-white/5 flex justify-between items-center">
                 <div>
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-3 mb-1">
                     <span className="status-pill bg-white/10 text-white/60">{activeRoom?.type}</span>
-                    {activeSession && <span className="status-pill bg-red-500 text-white">AKTIF</span>}
+                    {activeSession && <span className="status-pill bg-red-500 text-white animate-pulse">AKTIF</span>}
+                    {activeSession && (
+                      <span className="text-[10px] text-emerald-400 font-bold font-mono bg-emerald-500/5 px-2 py-0.5 rounded-full border border-emerald-500/10">
+                        {formatCurrency(activeSession.ratePerHour)}/Jam
+                      </span>
+                    )}
                   </div>
                   <h3 className="text-2xl font-bold">{activeRoom?.name}</h3>
                 </div>
@@ -2348,24 +2663,20 @@ export default function App() {
               <div className="p-6">
                 {activeSession ? (
                   <div className="space-y-6">
-                    <div className="grid grid-cols-2 gap-6">
-                      <div>
-                        <div className="text-[9px] text-white/40 uppercase tracking-[0.2em] mb-1 font-bold">
-                          {activeSession.endTime ? 'Sisa Waktu' : 'Waktu Mulai'}
+                    <div className="flex flex-wrap gap-x-8 gap-y-2 pb-4 border-b border-white/5">
+                      <div className="flex items-center gap-2">
+                        <div className="text-[8px] text-white/40 uppercase tracking-widest font-black">
+                          {activeSession.endTime ? 'Sisa:' : 'Mulai:'}
                         </div>
                         <div className={cn(
-                          "text-md font-medium",
-                          activeSession.endTime && (getRemainingTime(activeSession) || 0) < 600000 ? "text-red-500" : ""
+                          "text-xs font-bold font-mono",
+                          activeSession.endTime && (getRemainingTime(activeSession) || 0) < 600000 ? "text-red-500" : "text-white"
                         )}>
                           {activeSession.endTime 
                             ? formatTime(Math.max(0, getRemainingTime(activeSession) || 0))
                             : new Date(activeSession.startTime).toLocaleTimeString()
                           }
                         </div>
-                      </div>
-                      <div>
-                        <div className="text-[9px] text-white/40 uppercase tracking-[0.2em] mb-1 font-bold">Harga / Jam</div>
-                        <div className="text-md font-medium italic">{formatCurrency(activeSession.ratePerHour)}</div>
                       </div>
                     </div>
 
@@ -2420,33 +2731,62 @@ export default function App() {
                           <option value="other">Lainnya</option>
                         </select>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
-                        {inventory
-                          .filter(item => 
-                            (orderCategoryFilter === 'all' || item.category === orderCategoryFilter) &&
-                            (item.name.toLowerCase().includes(orderSearchQuery.toLowerCase()))
-                          )
-                          .map((item) => (
-                          <button
-                            key={item.id}
-                            disabled={item.stock <= 0}
-                            onClick={() => addOrderToActiveSession(item)}
-                            className={cn(
-                              "relative p-2 text-left bg-white/5 border border-white/5 rounded-lg hover:bg-white/10 transition-all overflow-hidden",
-                              item.stock <= 0 && "opacity-40 grayscale cursor-not-allowed"
-                            )}
-                          >
-                            <div className="text-[10px] font-bold truncate">{item.name}</div>
-                            <div className="text-[9px] text-white/40">{formatCurrency(item.price)}</div>
-                            <div className="mt-1 text-[8px] text-white/20 italic">Stok: {item.stock}</div>
-                            {item.stock <= 5 && item.stock > 0 && (
-                              <div className="absolute top-0 right-0 px-1 bg-red-500 text-[8px] font-bold text-white uppercase animate-pulse">Low</div>
-                            )}
-                            {item.stock <= 0 && (
-                              <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-[8px] font-bold uppercase tracking-widest">Habis</div>
-                            )}
-                          </button>
-                        ))}
+                      <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                        {orderSearchQuery.trim() !== '' ? (
+                          inventory
+                            .filter(item => 
+                              (orderCategoryFilter === 'all' || item.category === orderCategoryFilter) &&
+                              (item.name.toLowerCase().includes(orderSearchQuery.toLowerCase()))
+                            )
+                            .map((item) => (
+                            <div
+                              key={item.id}
+                              className={cn(
+                                "flex items-center justify-between gap-2 p-2 bg-white/5 border border-white/5 rounded-lg transition-all",
+                                item.stock <= 0 && "opacity-40 grayscale"
+                              )}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[10px] font-bold truncate text-white">{item.name}</div>
+                                <div className="text-[9px] text-white/40">{formatCurrency(item.price)} (Stok: {item.stock})</div>
+                              </div>
+                              
+                              {item.stock > 0 ? (
+                                <div className="flex items-center gap-1.5">
+                                  <input 
+                                    type="number"
+                                    min="1"
+                                    max={item.stock}
+                                    value={orderDraftQuantities[item.id] || 1}
+                                    onChange={(e) => {
+                                      const val = parseInt(e.target.value);
+                                      if (!isNaN(val)) {
+                                        setOrderDraftQuantities(prev => ({ ...prev, [item.id]: Math.min(Math.max(1, parseInt(e.target.value) || 1), item.stock) }));
+                                      }
+                                    }}
+                                    className="w-10 bg-black/40 border border-white/10 rounded text-[10px] text-center font-mono py-1 outline-none focus:border-emerald-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  />
+                                  <button
+                                    onClick={() => {
+                                      const q = orderDraftQuantities[item.id] || 1;
+                                      addOrderToActiveSession(item, q);
+                                      setOrderDraftQuantities(prev => ({ ...prev, [item.id]: 1 }));
+                                    }}
+                                    className="p-2 bg-emerald-500 text-black rounded-lg hover:bg-emerald-600 transition-all flex items-center justify-center shadow-lg active:scale-90"
+                                  >
+                                    <Plus size={12} strokeWidth={3} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="px-2 py-1 bg-white/5 text-[8px] font-bold text-white/20 uppercase tracking-widest rounded border border-white/5">Habis</div>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="py-8 text-center border border-dashed border-white/5 rounded-xl">
+                            <p className="text-[9px] text-white/20 uppercase tracking-widest font-medium">Ketik nama menu untuk mencari...</p>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -2483,179 +2823,470 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-6">
-                    {/* Rate Control */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Harga per Jam</label>
-                        {(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && (
-                          <div className="flex items-center gap-1 text-[8px] text-emerald-500 font-mono">
-                            <ShieldCheck size={10} /> {isPriceUnlocked && !(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER) ? 'OVERRIDE KASIR (AKTIF)' : 'TEROTORISASI EDIT'}
-                          </div>
+                    {/* Mode Switcher */}
+                    <div className="flex gap-4 p-2 bg-white/5 rounded-3xl border border-white/5">
+                      <button 
+                        onClick={() => setStartMode('manual')}
+                        className={cn(
+                          "flex-1 py-4 text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all flex items-center justify-center gap-3",
+                          startMode === 'manual' 
+                            ? "bg-white/10 text-white shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-white/10" 
+                            : "text-white/30 hover:text-white/60"
                         )}
-                      </div>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-white/30 text-xs font-mono">
-                          Rp
-                        </div>
-                        <input 
-                          type="number" 
-                          value={customRate || 0}
-                          onChange={(e) => setCustomRate(Number(e.target.value))}
-                          disabled={!(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked)}
-                          className={cn(
-                            "w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm font-mono focus:outline-none focus:border-white/40 transition-all",
-                            !(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && "opacity-60 cursor-not-allowed border-white/5"
-                          )}
-                        />
+                      >
+                        <Settings size={16} strokeWidth={2.5} />
+                        MANUAL
+                      </button>
+                      <button 
+                        onClick={() => setStartMode('package')}
+                        className={cn(
+                          "flex-1 py-4 text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all flex items-center justify-center gap-3",
+                          startMode === 'package' 
+                            ? "bg-white/10 text-white shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-white/10" 
+                            : "text-white/30 hover:text-white/60"
+                        )}
+                      >
+                        <PackageSearch size={16} strokeWidth={2.5} />
+                        SISTEM PAKET
+                      </button>
+                    </div>
 
-                        {!(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && (
-                          <div className="mt-4 p-4 rounded-xl bg-white/5 border border-white/5 space-y-3">
-                            <div className="flex items-center gap-2 text-[9px] text-white/40 font-bold uppercase tracking-widest">
-                              <Shield size={12} /> Persetujuan Dibutuhkan
+                    {startMode === 'manual' ? (
+                      <div className="space-y-8 pt-2">
+                        {/* Rate Control */}
+                        <div className="flex items-center justify-between gap-6">
+                          <label className="text-xs text-white uppercase font-black tracking-widest whitespace-nowrap">HARGA PER JAM</label>
+                          <div className="flex-1 relative">
+                            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-white/20 text-[9px] font-mono">
+                              Rp
                             </div>
-                            <div className="flex gap-2">
+                            <input 
+                              type="number" 
+                              value={customRate || 0}
+                              onChange={(e) => setCustomRate(Number(e.target.value))}
+                              disabled={!(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked)}
+                              className={cn(
+                                "w-full bg-[#050505] border border-white/5 rounded-lg py-2.5 pl-9 pr-4 text-xs font-mono focus:outline-none focus:border-white/20 transition-all",
+                                !(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && "opacity-40 cursor-not-allowed"
+                              )}
+                            />
+                          </div>
+                          {(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && (
+                            <div className="flex items-center gap-1.5 text-[8px] text-emerald-400 font-black uppercase tracking-widest">
+                              <ShieldCheck size={14} className="text-emerald-500" />
+                              TEROTORISASI EDIT
+                            </div>
+                          )}
+                        </div>
+
+                        {/* PIN Unlock if needed */}
+                        {!(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.MANAGER || isPriceUnlocked) && (
+                          <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-2 text-[9px] text-white/40 font-bold uppercase tracking-widest">
+                              <Shield size={12} /> Buka Akses Edit Harga
+                            </div>
+                            <div className="flex gap-2 flex-1 max-w-[200px]">
                               <input 
                                 type="password" 
-                                placeholder="PIN Admin/Manager"
+                                placeholder="PIN Admin"
                                 value={overridePassword}
                                 onChange={(e) => {
                                   setOverridePassword(e.target.value);
                                   setOverrideError(false);
                                 }}
                                 className={cn(
-                                  "flex-1 bg-black/40 border rounded-lg px-4 py-2 text-xs font-mono focus:outline-none transition-all",
-                                  overrideError ? "border-red-500/50" : "border-white/10 focus:border-white/30"
+                                  "w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] font-mono focus:outline-none focus:border-white/30 transition-all",
+                                  overrideError && "border-red-500/50"
                                 )}
                               />
                               <button 
                                 onClick={handleGrantOverride}
-                                className="bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30 border border-emerald-500/20 px-4 py-2 rounded-lg text-[10px] font-bold transition-all transition-all"
+                                className="bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30 border border-emerald-500/20 px-3 py-1.5 rounded-lg text-[10px] font-bold"
                               >
                                 UNLOCK
                               </button>
                             </div>
-                            {overrideError && (
-                              <p className="text-[8px] text-red-500 font-bold uppercase tracking-tighter">Password Salah atau Tidak Memiliki Akses!</p>
-                            )}
                           </div>
                         )}
-                      </div>
-                    </div>
 
-                    {/* Order Selection Section */}
-                    <div className="space-y-4">
-                      <div className="flex flex-col gap-3">
-                        <div className="flex items-center justify-between">
-                          <label className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Pesanan Tambahan</label>
-                          {pendingOrders.length > 0 && (
-                            <span className="text-[10px] text-emerald-500 font-bold">{pendingOrders.length} Item</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="relative flex-1">
-                            <Search size={10} className="absolute left-2 top-1/2 -translate-y-1/2 text-white/20" />
-                            <input 
-                              type="text" 
-                              placeholder="Cari menu..."
-                              value={orderSearchQuery}
-                              onChange={(e) => setOrderSearchQuery(e.target.value)}
-                              className="w-full bg-white/5 border border-white/10 rounded-lg py-1.5 pl-7 pr-2 text-[10px] focus:outline-none focus:border-emerald-500/50"
-                            />
+                        {/* Duration Buttons Grid */}
+                        <div className="space-y-4">
+                          <label className="text-xs text-white uppercase font-black tracking-widest">PILIH PAKET JAM</label>
+                          <div className="grid grid-cols-4 gap-2.5">
+                            {[1, 2, 3, 4, 5, 6, 7, 8].map((hrs) => (
+                              <button 
+                                key={hrs}
+                                onClick={() => handleStartSession(activeRoomId!, hrs)}
+                                className="py-3 px-2 rounded-lg border border-white/5 bg-white/5 hover:bg-white/10 hover:border-white/20 transition-all font-black text-[10px] text-white/80"
+                              >
+                                {hrs} Jam
+                              </button>
+                            ))}
                           </div>
-                          <select 
-                            value={orderCategoryFilter}
-                            onChange={(e) => setOrderCategoryFilter(e.target.value)}
-                            className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[9px] text-white/60 focus:outline-none focus:border-white/40 appearance-none cursor-pointer pr-5"
-                          >
-                            <option value="all">Semua</option>
-                            <option value="drink">Minuman</option>
-                            <option value="food">Makanan</option>
-                            <option value="other">Lainnya</option>
-                          </select>
                         </div>
-                      </div>
 
-                      <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                        {inventory
-                          .filter(item => 
-                            (orderCategoryFilter === 'all' || item.category === orderCategoryFilter) &&
-                            (item.name.toLowerCase().includes(orderSearchQuery.toLowerCase()))
-                          )
-                          .map((item) => (
-                          <button
-                            key={item.id}
-                            disabled={item.stock <= 0}
-                            onClick={() => addToPendingOrder(item)}
-                            className={cn(
-                              "group relative p-3 text-left bg-white/5 border border-white/5 rounded-xl hover:bg-white/10 hover:border-white/20 transition-all",
-                              item.stock <= 0 && "opacity-40 grayscale cursor-not-allowed border-white/5 bg-transparent"
-                            )}
-                          >
-                            <div className="text-xs font-bold mb-1 truncate">{item.name}</div>
-                            <div className="text-[10px] text-emerald-400 font-mono italic">{formatCurrency(item.price)}</div>
-                            <div className="mt-1 text-[8px] text-white/20 italic">Stok: {item.stock}</div>
-                            
-                            {pendingOrders.find(p => p.id === item.id) && (
-                              <div className="absolute top-2 right-2 w-5 h-5 bg-emerald-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-lg">
-                                {pendingOrders.find(p => p.id === item.id)?.quantity}
-                              </div>
-                            )}
-
-                            {item.stock <= 0 && (
-                              <div className="absolute inset-x-0 bottom-0 py-1 bg-white/5 text-[8px] text-center font-bold uppercase tracking-widest text-white/40">Kosong</div>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-
-                      {pendingOrders.length > 0 && (
-                        <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-xl p-3 space-y-2">
-                          <div className="text-[9px] text-emerald-500/60 uppercase tracking-widest font-bold">Ringkasan Pesanan</div>
-                          {pendingOrders.map((order) => (
-                            <div key={order.id} className="flex items-center justify-between">
-                              <span className="text-[10px]">{order.name} x{order.quantity}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-mono">{formatCurrency(order.price * order.quantity)}</span>
-                                <button 
-                                  onClick={() => removeFromPendingOrder(order.id)}
-                                  className="text-red-500/40 hover:text-red-500 p-1"
-                                >
-                                  <X size={10} />
-                                </button>
+                        {/* Order Selection Section */}
+                        <div className="space-y-4">
+                          <label className="text-xs text-white uppercase font-black tracking-widest">PESANAN TAMBAHAN</label>
+                          <div className="flex items-end gap-3">
+                            <div className="flex-1 space-y-2">
+                              <div className="text-[8px] text-white/20 uppercase font-black tracking-widest pl-1">Cari Menu</div>
+                              <div className="relative">
+                                <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" />
+                                <input 
+                                  type="text" 
+                                  placeholder="Ketik nama menu..."
+                                  value={orderSearchQuery}
+                                  onChange={(e) => setOrderSearchQuery(e.target.value)}
+                                  className="w-full bg-[#050505] border border-white/5 rounded-xl py-3.5 pl-11 pr-4 text-xs focus:outline-none focus:border-white/20 transition-all text-white/80"
+                                />
                               </div>
                             </div>
-                          ))}
+                            <div className="w-[140px] space-y-2">
+                              <div className="text-[8px] text-white/20 uppercase font-black tracking-widest pl-1">KATAGORI</div>
+                              <div className="relative">
+                                <select 
+                                  value={orderCategoryFilter}
+                                  onChange={(e) => setOrderCategoryFilter(e.target.value)}
+                                  className="appearance-none bg-[#050505] border border-white/5 rounded-xl px-5 py-3.5 text-[10px] font-black uppercase tracking-widest text-white/40 focus:outline-none focus:border-white/20 cursor-pointer pr-10 w-full"
+                                >
+                                  <option value="all">Semua</option>
+                                  <option value="drink">Minuman</option>
+                                  <option value="food">Makanan</option>
+                                </select>
+                                <ChevronDown size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 pointer-events-none" />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className={cn(
+                            "min-h-[160px] border border-dashed border-white/5 rounded-[32px] flex items-center justify-center text-center bg-white/[0.01] transition-all",
+                            (orderSearchQuery.trim() !== '' || orderCategoryFilter !== 'all') ? "p-4 items-start" : "p-8"
+                          )}>
+                            {orderSearchQuery.trim() !== '' || orderCategoryFilter !== 'all' ? (
+                              <div className="w-full grid grid-cols-1 gap-6 max-h-[240px] overflow-y-auto pr-2 custom-scrollbar text-left">
+                                {['drink', 'food', 'other'].map((cat) => {
+                                  const items = inventory.filter(item => 
+                                    item.category === cat && 
+                                    (orderCategoryFilter === 'all' || orderCategoryFilter === cat) &&
+                                    (item.name.toLowerCase().includes(orderSearchQuery.toLowerCase()))
+                                  );
+
+                                  if (items.length === 0) return null;
+
+                                  return (
+                                    <div key={cat} className="space-y-2.5">
+                                      {orderCategoryFilter === 'all' && (
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <div className="h-px bg-white/5 flex-1"></div>
+                                          <div className="text-[8px] text-white/30 uppercase font-black tracking-widest">{cat === 'drink' ? 'Minuman' : cat === 'food' ? 'Makanan' : 'Lainnya'}</div>
+                                          <div className="h-px bg-white/5 flex-1"></div>
+                                        </div>
+                                      )}
+                                      <div className="grid grid-cols-1 gap-2">
+                                        {items.map((item) => (
+                                          <div
+                                            key={item.id}
+                                            className={cn(
+                                              "flex items-center justify-between gap-3 p-3 bg-white/5 border border-white/5 rounded-xl transition-all",
+                                              item.stock <= 0 && "opacity-40 grayscale"
+                                            )}
+                                          >
+                                            <div className="flex-1 min-w-0">
+                                              <div className="text-[10px] font-bold text-white truncate">{item.name}</div>
+                                              <div className="text-[9px] text-emerald-400 font-mono italic">{formatCurrency(item.price)}</div>
+                                            </div>
+                                            
+                                            {item.stock > 0 ? (
+                                              <button
+                                                onClick={() => addToPendingOrder(item, 1)}
+                                                className="w-8 h-8 flex items-center justify-center bg-emerald-500 rounded-lg text-black hover:bg-emerald-600 transition-all shadow-lg active:scale-95"
+                                              >
+                                                <Plus size={14} strokeWidth={3} />
+                                              </button>
+                                            ) : (
+                                              <div className="text-[8px] font-black uppercase text-white/20">Habis</div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                <p className="text-[9px] text-white/20 uppercase tracking-[0.3em] font-black leading-relaxed">
+                                  KETIK NAMA MENU UNTUK <br /> MENAMBAH PESANAN...
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          {pendingOrders.length > 0 && (
+                            <div className="flex flex-wrap gap-2 pt-2">
+                              {pendingOrders.map(p => (
+                                <div key={p.id} className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full">
+                                  <span className="text-[9px] font-bold text-emerald-400">{p.name} x{p.quantity}</span>
+                                  <button onClick={() => removeFromPendingOrder(p.id)} className="text-emerald-500/40 hover:text-emerald-500">
+                                    <X size={10} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
 
-                    <div className="grid grid-cols-4 gap-2">
-                      {[1, 2, 3, 4, 5, 6, 7, 8].map((hrs) => (
-                        <button 
-                          key={hrs}
-                          onClick={() => handleStartSession(activeRoomId!, hrs)}
-                          className="py-2.5 rounded-lg border border-white/10 hover:border-white/40 bg-white/5 hover:bg-white/10 transition-all font-bold text-xs"
-                        >
-                          {hrs} Jam
-                        </button>
-                      ))}
-                    </div>
+                          <div className="flex flex-col gap-3 pt-6">
+                            <div className="relative py-4">
+                              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-white/5"></div>
+                              <span className="relative z-10 bg-[#080808] px-4 text-[9px] text-white/10 uppercase tracking-[0.4em] font-black block w-fit mx-auto">PILIHAN LAIN</span>
+                            </div>
 
-                    <div className="relative py-2">
-                      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-white/5"></div>
-                      <span className="relative z-10 bg-[#111] px-3 text-[9px] text-white/20 uppercase tracking-widest block w-fit mx-auto font-bold">Pilihan Lain</span>
+                            <button 
+                              onClick={() => handleStartSession(activeRoomId!)}
+                              className="w-full h-16 bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] text-white/40 transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
+                            >
+                              <Play size={18} fill="currentColor" className="text-white/20" />
+                              Mulai Tanpa Batas (Open-Ended)
+                            </button>
+                          </div>
+                      </div>
+                    ) : (
+                  <div className="space-y-4">
+                    <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-2">Pilih Paket Penjualan</div>
+                    <div className="grid grid-cols-1 gap-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                      {packages
+                        .filter(p => p.roomType === 'all' || p.roomType === activeRoom?.type)
+                        .map((pkg) => (
+                          <button
+                            key={pkg.id}
+                            onClick={() => handleStartSessionWithPackage(activeRoom!.id, pkg.id)}
+                            className="group relative p-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-emerald-500/10 hover:border-emerald-500/30 transition-all text-left"
+                          >
+                            <div className="flex justify-between items-start mb-2">
+                              <div>
+                                <h4 className="font-bold text-white mb-1 tracking-tight">{pkg.name}</h4>
+                                <p className="text-[10px] text-white/40 leading-relaxed font-medium">{pkg.description}</p>
+                              </div>
+                              <div className="text-emerald-400 font-mono font-bold">{formatCurrency(pkg.price)}</div>
+                            </div>
+                            <div className="flex items-center gap-2 mt-4">
+                              <div className="flex items-center gap-1 py-1.5 px-3 bg-white/10 rounded-lg text-[9px] text-white/60 font-bold uppercase tracking-wider">
+                                <Clock size={10} /> {pkg.durationHours} Jam
+                              </div>
+                              <div className="flex items-center gap-1 py-1.5 px-3 bg-emerald-500/20 rounded-lg text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
+                                <ShoppingBag size={10} /> {pkg.items.length} Item F&B
+                              </div>
+                            </div>
+                          </button>
+                        ))}
                     </div>
-
-                    <button 
-                      onClick={() => handleStartSession(activeRoomId)}
-                      className="w-full h-11 bg-white text-black hover:bg-white/90 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
-                    >
-                      <Play size={16} fill="currentColor" />
-                      Mulai Tanpa Batas (Open-Ended)
-                    </button>
+                    {packages.filter(p => p.roomType === 'all' || p.roomType === activeRoom?.type).length === 0 && (
+                      <div className="p-10 text-center text-white/20">
+                        <PackageSearch size={40} className="mx-auto mb-4 opacity-10" />
+                        <p className="text-xs uppercase tracking-widest font-bold">Tidak ada paket tersedia untuk tipe room ini.</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    )}
+      </AnimatePresence>
+
+      {/* Package Form Modal */}
+      <AnimatePresence>
+        {showPackageForm && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
+            <motion.div 
+               initial={{ opacity: 0 }}
+               animate={{ opacity: 1 }}
+               exit={{ opacity: 0 }}
+               onClick={() => {
+                 setShowPackageForm(false);
+                 setEditingPackage(null);
+               }}
+               className="absolute inset-0 bg-black/90 backdrop-blur-md"
+            />
+            <motion.div 
+               initial={{ opacity: 0, scale: 0.95 }}
+               animate={{ opacity: 1, scale: 1 }}
+               exit={{ opacity: 0, scale: 0.95 }}
+               className="bg-[#0A0A0A] border border-white/10 w-full max-w-4xl rounded-[32px] shadow-2xl relative z-10 flex flex-col max-h-[90vh]"
+            >
+               <div className="p-8 border-b border-white/5 flex items-center justify-between">
+                 <div>
+                   <h2 className="text-xl font-bold tracking-tight">{editingPackage ? 'Edit Paket' : 'Tambah Paket Baru'}</h2>
+                   <p className="text-xs text-white/40">Konfigurasi bundling room dan menu</p>
+                 </div>
+                 <button 
+                   onClick={() => {
+                     setShowPackageForm(false);
+                     setEditingPackage(null);
+                   }}
+                   className="w-10 h-10 bg-white/5 hover:bg-white/10 rounded-full flex items-center justify-center text-white/40 hover:text-white transition-all"
+                 >
+                   <X size={20} />
+                 </button>
+               </div>
+
+               <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                   <div className="space-y-6">
+                     <div className="space-y-2">
+                       <label className="text-[10px] text-white/40 uppercase font-bold tracking-widest px-1">Nama Paket</label>
+                       <input 
+                         type="text"
+                         value={pkgName}
+                         onChange={(e) => setPkgName(e.target.value)}
+                         placeholder="Contoh: Paket Karaoke 2 Jam"
+                         className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:border-emerald-500/50 focus:bg-white/[0.07] outline-none transition-all"
+                       />
+                     </div>
+                     <div className="space-y-2">
+                       <label className="text-[10px] text-white/40 uppercase font-bold tracking-widest px-1">Deskripsi</label>
+                       <textarea 
+                         value={pkgDesc}
+                         onChange={(e) => setPkgDesc(e.target.value)}
+                         placeholder="Jelaskan isi paket..."
+                         className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:border-emerald-500/50 focus:bg-white/[0.07] outline-none transition-all h-24 resize-none"
+                       />
+                     </div>
+                     <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-2">
+                         <label className="text-[10px] text-white/40 uppercase font-bold tracking-widest px-1">Harga (IDR)</label>
+                         <input 
+                           type="number"
+                           value={pkgPrice}
+                           onChange={(e) => setPkgPrice(Number(e.target.value))}
+                           className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:border-emerald-500/50 outline-none transition-all font-mono"
+                         />
+                       </div>
+                       <div className="space-y-2">
+                         <label className="text-[10px] text-white/40 uppercase font-bold tracking-widest px-1">Durasi (Jam)</label>
+                         <input 
+                           type="number"
+                           value={pkgDuration}
+                           onChange={(e) => setPkgDuration(Number(e.target.value))}
+                           className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:border-emerald-500/50 outline-none transition-all font-mono"
+                         />
+                       </div>
+                     </div>
+                     <div className="space-y-2">
+                       <label className="text-[10px] text-white/40 uppercase font-bold tracking-widest px-1">Tipe Room</label>
+                       <select 
+                         value={pkgRoomType}
+                         onChange={(e) => setPkgRoomType(e.target.value as RoomType | 'all')}
+                         className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:border-emerald-500/50 outline-none transition-all"
+                       >
+                         <option value="all" className="bg-black">Semua Tipe</option>
+                         <option value={RoomType.SMALL} className="bg-black">Small</option>
+                         <option value={RoomType.MEDIUM} className="bg-black">Medium</option>
+                         <option value={RoomType.LARGE} className="bg-black">Large</option>
+                         <option value={RoomType.VIP} className="bg-black">VIP</option>
+                       </select>
+                     </div>
+                   </div>
+
+                   <div className="space-y-6">
+                     <div className="space-y-4">
+                       <div className="flex items-center justify-between">
+                         <label className="text-[10px] text-white/40 uppercase font-bold tracking-widest px-1">Menu Bundling</label>
+                         <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded-full">{pkgItems.length} Terpilih</span>
+                       </div>
+                       
+                       <div className="space-y-3 bg-black/40 border border-white/5 p-4 rounded-3xl max-h-[400px] overflow-y-auto custom-scrollbar">
+                         {inventory.map(item => {
+                            const selected = pkgItems.find(pi => pi.itemId === item.id);
+                            return (
+                              <div key={item.id} className="flex items-center justify-between gap-3 p-3 hover:bg-white/5 rounded-2xl transition-all group">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[11px] font-bold text-white truncate">{item.name}</div>
+                                  <div className="text-[9px] text-white/30 uppercase tracking-wider">{item.category}</div>
+                                </div>
+                                {selected ? (
+                                  <div className="flex items-center gap-3">
+                                     <button 
+                                      onClick={() => {
+                                        if(selected.quantity > 1) {
+                                          setPkgItems(prev => prev.map(pi => pi.itemId === item.id ? { ...pi, quantity: pi.quantity - 1 } : pi));
+                                        } else {
+                                          setPkgItems(prev => prev.filter(pi => pi.itemId !== item.id));
+                                        }
+                                      }}
+                                      className="w-8 h-8 flex items-center justify-center bg-red-500/20 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all"
+                                     >
+                                        <X size={12} />
+                                     </button>
+                                     <span className="text-sm font-mono font-bold w-6 text-center text-white">{selected.quantity}</span>
+                                     <button 
+                                      onClick={() => {
+                                        setPkgItems(prev => prev.map(pi => pi.itemId === item.id ? { ...pi, quantity: pi.quantity + 1 } : pi));
+                                      }}
+                                      className="w-8 h-8 flex items-center justify-center bg-emerald-500/20 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-black transition-all"
+                                     >
+                                        <Plus size={12} />
+                                     </button>
+                                  </div>
+                                ) : (
+                                  <button 
+                                    onClick={() => setPkgItems(prev => [...prev, { itemId: item.id, quantity: 1 }])}
+                                    className="p-2.5 bg-white/5 text-white/30 hover:bg-emerald-500 hover:text-black rounded-xl transition-all"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                )}
+                              </div>
+                            )
+                         })}
+                       </div>
+                     </div>
+                   </div>
+                 </div>
+               </div>
+
+               <div className="p-8 border-t border-white/5 bg-white/[0.02] flex items-center justify-end gap-4">
+                 <button 
+                   onClick={() => {
+                     setShowPackageForm(false);
+                     setEditingPackage(null);
+                   }}
+                   className="px-6 py-4 rounded-2xl text-xs font-bold uppercase tracking-widest text-white/40 hover:text-white transition-all"
+                 >
+                   Batal
+                 </button>
+                 <button 
+                   onClick={() => {
+                     if(!pkgName || pkgPrice <= 0) {
+                        alert('Nama dan Harga harus diisi!');
+                        return;
+                     }
+                     const pkgData = {
+                       name: pkgName,
+                       description: pkgDesc,
+                       price: pkgPrice,
+                       durationHours: pkgDuration,
+                       roomType: pkgRoomType,
+                       items: pkgItems
+                     };
+                     if (editingPackage) {
+                       setPackages(prev => prev.map(p => p.id === editingPackage.id ? { ...p, ...pkgData } as Package : p));
+                     } else {
+                       const newPkg = { ...pkgData, id: Math.random().toString(36).substr(2, 9) } as Package;
+                       setPackages(prev => [...prev, newPkg]);
+                     }
+                     setShowPackageForm(false);
+                     setEditingPackage(null);
+                   }}
+                   className="px-10 py-4 bg-emerald-500 hover:bg-emerald-600 text-black rounded-2xl text-xs font-bold uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(16,185,129,0.2)]"
+                 >
+                   Simpan Paket
+                 </button>
+               </div>
             </motion.div>
           </div>
         )}
@@ -2701,6 +3332,12 @@ export default function App() {
                   <span>ROOM :</span>
                   <span className="font-bold">{rooms.find(r => r.id === receiptSession.roomId)?.name}</span>
                 </div>
+                {receiptSession.isPackage && receiptSession.packageId && (
+                  <div className="flex justify-between">
+                    <span>PAKET :</span>
+                    <span className="font-bold uppercase">{packages.find(p => p.id === receiptSession.packageId)?.name}</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span>OPERATOR :</span>
                   <span>{currentUser.name.toUpperCase()}</span>

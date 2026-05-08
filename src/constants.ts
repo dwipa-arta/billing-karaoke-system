@@ -3,13 +3,64 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { RoomType, RoomRate, Room, InventoryItem } from './types';
+import { RoomType, RoomRate, Room, InventoryItem, Package } from './types';
 
 export const DEFAULT_RATES: RoomRate[] = [
   { type: RoomType.SMALL, ratePerHour: 50000 },
   { type: RoomType.MEDIUM, ratePerHour: 75000 },
   { type: RoomType.LARGE, ratePerHour: 100000 },
   { type: RoomType.VIP, ratePerHour: 150000 },
+];
+
+export const INITIAL_PACKAGES: Package[] = [
+  {
+    id: 'pkg1',
+    name: 'Paket Chill (Small)',
+    description: '2 Jam Room Small + 2 Small Beer + 1 Snacks',
+    price: 150000,
+    durationHours: 2,
+    roomType: RoomType.SMALL,
+    items: [
+      { itemId: 'p16', quantity: 2 },
+      { itemId: 'p4', quantity: 1 }
+    ]
+  },
+  {
+    id: 'pkg2',
+    name: 'Paket Party (Medium)',
+    description: '3 Jam Room Medium + 4 Small Beer + 2 Snacks',
+    price: 350000,
+    durationHours: 3,
+    roomType: RoomType.MEDIUM,
+    items: [
+      { itemId: 'p16', quantity: 4 },
+      { itemId: 'p5', quantity: 2 }
+    ]
+  },
+  {
+    id: 'pkg3',
+    name: 'Paket Executive (VIP)',
+    description: '3 Jam Room VIP + 1 Black Label + 2 Snacks',
+    price: 1800000,
+    durationHours: 3,
+    roomType: RoomType.VIP,
+    items: [
+      { itemId: 'p20', quantity: 1 },
+      { itemId: 'p7', quantity: 2 }
+    ]
+  },
+  {
+    id: 'pkg4',
+    name: 'Paket Hemat Pelajar',
+    description: '1 Jam Room (All Type) + 2 Iced Tea + 1 French Fries',
+    price: 85000,
+    durationHours: 1,
+    roomType: 'all',
+    items: [
+      { itemId: 'p11', quantity: 2 },
+      { itemId: 'p4', quantity: 1 }
+    ]
+  }
 ];
 
 export const INITIAL_INVENTORY: InventoryItem[] = [
@@ -28,6 +79,13 @@ export const INITIAL_INVENTORY: InventoryItem[] = [
   { id: 'p13', name: 'Rokok Gudang Garam Filter', price: 28000, purchasePrice: 24000, category: 'other', stock: 4, unit: 'Bks' },
   { id: 'p14', name: 'Rokok Sampoerna Mild', price: 32000, purchasePrice: 28000, category: 'other', stock: 8, unit: 'Bks' },
   { id: 'p15', name: 'Korek Api Gas', price: 3000, purchasePrice: 1500, category: 'other', stock: 50, unit: 'Pcs' },
+  { id: 'p16', name: 'Bir Bintang 330ml', price: 35000, purchasePrice: 28000, category: 'drink', stock: 12, unit: 'Btl' },
+  { id: 'p17', name: 'Anker Beer 330ml', price: 30000, purchasePrice: 24000, category: 'drink', stock: 12, unit: 'Btl' },
+  { id: 'p18', name: 'Bali Hai Premium 330ml', price: 32000, purchasePrice: 25000, category: 'drink', stock: 12, unit: 'Btl' },
+  { id: 'p19', name: 'Johnnie Walker Red Label 750ml', price: 850000, purchasePrice: 700000, category: 'drink', stock: 6, unit: 'Btl' },
+  { id: 'p20', name: 'Johnnie Walker Black Label 750ml', price: 1250000, purchasePrice: 1050000, category: 'drink', stock: 6, unit: 'Btl' },
+  { id: 'p21', name: "Jack Daniel's Old No. 7 750ml", price: 1100000, purchasePrice: 900000, category: 'drink', stock: 6, unit: 'Btl' },
+  { id: 'p22', name: 'Chivas Regal 12 Y.O. 750ml', price: 1350000, purchasePrice: 1150000, category: 'drink', stock: 6, unit: 'Btl' },
 ];
 
 export const INITIAL_ROOMS: Room[] = [

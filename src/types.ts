@@ -69,6 +69,21 @@ export interface InventoryLog {
   performedBy: string;
 }
 
+export interface PackageItem {
+  itemId: string;
+  quantity: number;
+}
+
+export interface Package {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  durationHours: number;
+  roomType: RoomType | 'all';
+  items: PackageItem[];
+}
+
 export interface Session {
   id: string;
   roomId: string;
@@ -82,6 +97,9 @@ export interface Session {
   customerName?: string;
   status: 'active' | 'completed' | 'cancelled';
   orders?: OrderItem[];
+  packageId?: string;
+  isPackage?: boolean;
+  packagePrice?: number;
 }
 
 export interface RoomRate {
